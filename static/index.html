@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DCF Valuation Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0e17;--surface:#111827;--surface2:#1a2332;--surface3:#243044;
+  --border:#2a3a50;--border-light:#3a4f6a;
+  --text:#e2e8f0;--text-dim:#8899aa;--text-muted:#556677;
+  --accent:#22d3ee;--accent-dim:#0e7490;
+  --green:#10b981;--green-bg:rgba(16,185,129,.12);
+  --red:#ef4444;--red-bg:rgba(239,68,68,.12);
+  --amber:#f59e0b;--amber-bg:rgba(245,158,11,.12);
+  --mono:'JetBrains Mono',monospace;--sans:'DM Sans',sans-serif;
+}
+html{font-size:14px}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overflow-x:hidden}
+a{color:var(--accent);text-decoration:none}
+
+/* Layout */
+.container{max-width:1200px;margin:0 auto;padding:1rem}
+
+/* Header */
+header{border-bottom:1px solid var(--border);padding:1.2rem 0;margin-bottom:2rem}
+header .container{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem}
+.logo{font-family:var(--mono);font-size:1.3rem;font-weight:700;letter-spacing:-.02em}
+.logo span{color:var(--accent)}
+.tagline{color:var(--text-dim);font-size:.8rem;font-family:var(--mono)}
+
+/* Input Panel */
+.input-panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.8rem;margin-bottom:2rem}
+.input-panel h2{font-family:var(--mono);font-size:1rem;color:var(--accent);margin-bottom:1.2rem;letter-spacing:.04em;text-transform:uppercase;font-weight:600}
+.input-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:1rem;align-items:end}
+@media(max-width:768px){.input-row{grid-template-columns:1fr 1fr;}}
+.field label{display:block;color:var(--text-dim);font-size:.75rem;font-family:var(--mono);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem}
+.field input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.65rem .8rem;color:var(--text);font-family:var(--mono);font-size:.95rem;transition:border-color .2s}
+.field input:focus{outline:none;border-color:var(--accent)}
+.btn{background:var(--accent);color:var(--bg);border:none;border-radius:8px;padding:.65rem 1.8rem;font-family:var(--mono);font-size:.9rem;font-weight:700;cursor:pointer;letter-spacing:.02em;transition:all .2s;white-space:nowrap}
+.btn:hover{filter:brightness(1.15);transform:translateY(-1px)}
+.btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+
+/* Loading */
+.loader{display:none;text-align:center;padding:4rem 0}
+.loader.active{display:block}
+.spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 1rem}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loader p{color:var(--text-dim);font-family:var(--mono);font-size:.85rem}
+
+/* Error */
+.error{background:var(--red-bg);border:1px solid var(--red);border-radius:10px;padding:1rem 1.2rem;color:var(--red);font-family:var(--mono);font-size:.85rem;margin-bottom:1.5rem;display:none}
+.error.active{display:block}
+
+/* Results */
+#results{display:none}
+#results.active{display:block}
+
+/* Recommendation banner */
+.rec-banner{border-radius:12px;padding:2rem;text-align:center;margin-bottom:2rem;border:1px solid}
+.rec-banner.BUY{background:var(--green-bg);border-color:var(--green)}
+.rec-banner.SELL{background:var(--red-bg);border-color:var(--red)}
+.rec-banner.HOLD{background:var(--amber-bg);border-color:var(--amber)}
+.rec-label{font-family:var(--mono);font-size:2.2rem;font-weight:700;letter-spacing:.05em}
+.rec-banner.BUY .rec-label{color:var(--green)}
+.rec-banner.SELL .rec-label{color:var(--red)}
+.rec-banner.HOLD .rec-label{color:var(--amber)}
+.rec-sub{color:var(--text-dim);font-size:.9rem;margin-top:.5rem;font-family:var(--mono)}
+.rec-prices{display:flex;justify-content:center;gap:3rem;margin-top:1.2rem;flex-wrap:wrap}
+.rec-price-item{text-align:center}
+.rec-price-item .label{font-family:var(--mono);font-size:.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em}
+.rec-price-item .val{font-family:var(--mono);font-size:1.5rem;font-weight:700;margin-top:.2rem}
+
+/* Stat cards */
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:2rem}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.2rem}
+.stat-card .label{font-family:var(--mono);font-size:.65rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em}
+.stat-card .value{font-family:var(--mono);font-size:1.15rem;font-weight:600;margin-top:.3rem;color:var(--text)}
+
+/* Section */
+.section{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.5rem;margin-bottom:1.5rem}
+.section h3{font-family:var(--mono);font-size:.85rem;color:var(--accent);text-transform:uppercase;letter-spacing:.06em;margin-bottom:1rem;font-weight:600}
+
+/* Tables */
+table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:.8rem}
+th{text-align:right;color:var(--text-muted);font-weight:500;padding:.5rem .6rem;border-bottom:1px solid var(--border);font-size:.7rem;text-transform:uppercase;letter-spacing:.06em}
+td{text-align:right;padding:.5rem .6rem;border-bottom:1px solid rgba(42,58,80,.4);color:var(--text)}
+th:first-child,td:first-child{text-align:left}
+tr:hover td{background:rgba(34,211,238,.03)}
+
+/* Sensitivity */
+.sens-table td,.sens-table th{font-size:.75rem;padding:.4rem .5rem;text-align:center}
+.sens-table .highlight{background:rgba(34,211,238,.15);font-weight:700;color:var(--accent)}
+.sens-header{color:var(--text-dim);font-family:var(--mono);font-size:.7rem;text-align:center;margin-bottom:.5rem}
+
+/* Footer */
+footer{text-align:center;padding:2rem 0;color:var(--text-muted);font-family:var(--mono);font-size:.7rem;border-top:1px solid var(--border);margin-top:2rem}
+
+/* Responsive */
+@media(max-width:600px){
+  .input-row{grid-template-columns:1fr}
+  .rec-prices{gap:1.5rem}
+  .stat-grid{grid-template-columns:1fr 1fr}
+  table{font-size:.7rem}
+}
+
+/* Excel button */
+.btn-excel{background:var(--green);margin-top:1rem}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="container">
+    <div>
+      <div class="logo"><span>DCF</span>engine</div>
+      <div class="tagline">Intrinsic Valuation Platform</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+
+  <!-- Input Panel -->
+  <div class="input-panel">
+    <h2>Model Inputs</h2>
+    <div class="input-row">
+      <div class="field">
+        <label>Ticker</label>
+        <input type="text" id="ticker" placeholder="AAPL" value="AAPL">
+      </div>
+      <div class="field">
+        <label>WACC (%)</label>
+        <input type="number" id="wacc" placeholder="10" value="10" step="0.5" min="1" max="30">
+      </div>
+      <div class="field">
+        <label>Revenue Growth (%)</label>
+        <input type="number" id="growth" placeholder="5" value="5" step="0.5" min="-20" max="50">
+      </div>
+      <div class="field">
+        <label>Terminal Growth (%)</label>
+        <input type="number" id="tgrowth" placeholder="2.5" value="2.5" step="0.25" min="0" max="5">
+      </div>
+      <div>
+        <button class="btn" id="runBtn" onclick="runDCF()">Run DCF</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div class="loader" id="loader">
+    <div class="spinner"></div>
+    <p>Fetching financials & running model...</p>
+  </div>
+
+  <!-- Error -->
+  <div class="error" id="error"></div>
+
+  <!-- Results -->
+  <div id="results">
+
+    <!-- Recommendation Banner -->
+    <div class="rec-banner" id="recBanner">
+      <div class="rec-label" id="recLabel"></div>
+      <div class="rec-sub" id="recSub"></div>
+      <div class="rec-prices">
+        <div class="rec-price-item">
+          <div class="label">Market Price</div>
+          <div class="val" id="mktPrice"></div>
+        </div>
+        <div class="rec-price-item">
+          <div class="label">Implied Value</div>
+          <div class="val" id="impliedPrice" style="color:var(--accent)"></div>
+        </div>
+        <div class="rec-price-item">
+          <div class="label">Upside / Downside</div>
+          <div class="val" id="upside"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Company Overview -->
+    <div class="stat-grid" id="statGrid"></div>
+
+    <!-- DCF Projections -->
+    <div class="section">
+      <h3>Projected Unlevered Free Cash Flows</h3>
+      <div style="overflow-x:auto">
+        <table id="projTable"></table>
+      </div>
+    </div>
+
+    <!-- Valuation Summary -->
+    <div class="section">
+      <h3>Valuation Summary</h3>
+      <div style="overflow-x:auto">
+        <table id="valTable"></table>
+      </div>
+    </div>
+
+    <!-- Sensitivity -->
+    <div class="section">
+      <h3>Sensitivity Analysis — Implied Share Price</h3>
+      <div class="sens-header">WACC (rows) vs Terminal Growth (columns)</div>
+      <div style="overflow-x:auto">
+        <table class="sens-table" id="sensTable"></table>
+      </div>
+    </div>
+
+    <!-- Export -->
+    <div style="text-align:center">
+      <button class="btn btn-excel" onclick="exportExcel()">Download Excel Model</button>
+    </div>
+
+  </div>
+</main>
+
+<footer>
+  <div class="container">
+    DCF Engine — Built for equity research & valuation analysis. Data via Yahoo Finance. Not financial advice.
+  </div>
+</footer>
+
+<!-- SheetJS for Excel export -->
+<script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+
+<script>
+// ──────────────────────────────────────────────
+// Formatting helpers
+// ──────────────────────────────────────────────
+const fmt = (n) => {
+  if (n == null || isNaN(n)) return "—";
+  if (Math.abs(n) >= 1e12) return "$" + (n/1e12).toFixed(2) + "T";
+  if (Math.abs(n) >= 1e9) return "$" + (n/1e9).toFixed(2) + "B";
+  if (Math.abs(n) >= 1e6) return "$" + (n/1e6).toFixed(1) + "M";
+  return "$" + n.toLocaleString();
+};
+const pct = (n) => n != null ? n.toFixed(2) + "%" : "—";
+const dollar = (n) => n != null ? "$" + n.toFixed(2) : "—";
+
+let lastData = null; // store for excel export
+
+// ──────────────────────────────────────────────
+// Run DCF
+// ──────────────────────────────────────────────
+async function runDCF() {
+  const ticker = document.getElementById("ticker").value.trim();
+  const wacc = parseFloat(document.getElementById("wacc").value) / 100;
+  const growth = parseFloat(document.getElementById("growth").value) / 100;
+  const tgrowth = parseFloat(document.getElementById("tgrowth").value) / 100;
+
+  if (!ticker) return alert("Enter a ticker.");
+  if (isNaN(wacc) || isNaN(growth) || isNaN(tgrowth)) return alert("Fill all assumptions.");
+  if (wacc <= tgrowth) return alert("WACC must be greater than terminal growth rate.");
+
+  document.getElementById("results").classList.remove("active");
+  document.getElementById("error").classList.remove("active");
+  document.getElementById("loader").classList.add("active");
+  document.getElementById("runBtn").disabled = true;
+
+  try {
+    const res = await fetch("/api/dcf", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        ticker, wacc, terminal_growth: tgrowth,
+        revenue_growth: growth, projection_years: 5
+      })
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "Something went wrong.");
+    }
+
+    const data = await res.json();
+    lastData = data;
+    renderResults(data);
+  } catch (e) {
+    document.getElementById("error").textContent = e.message;
+    document.getElementById("error").classList.add("active");
+  } finally {
+    document.getElementById("loader").classList.remove("active");
+    document.getElementById("runBtn").disabled = false;
+  }
+}
+
+// ──────────────────────────────────────────────
+// Render
+// ──────────────────────────────────────────────
+function renderResults(data) {
+  const c = data.company;
+  const v = data.valuation;
+
+  // Recommendation
+  const banner = document.getElementById("recBanner");
+  banner.className = "rec-banner " + v.recommendation;
+  document.getElementById("recLabel").textContent = v.recommendation;
+  document.getElementById("recSub").textContent = c.name + " (" + c.ticker + ")";
+  document.getElementById("mktPrice").textContent = dollar(v.current_price);
+  document.getElementById("impliedPrice").textContent = dollar(v.implied_share_price);
+  const up = v.upside_pct;
+  const upEl = document.getElementById("upside");
+  upEl.textContent = (up >= 0 ? "+" : "") + up.toFixed(1) + "%";
+  upEl.style.color = up > 0 ? "var(--green)" : up < 0 ? "var(--red)" : "var(--amber)";
+
+  // Stat cards
+  const stats = [
+    {label: "Sector", value: c.sector},
+    {label: "Market Cap", value: fmt(c.market_cap)},
+    {label: "P/E Ratio", value: c.pe_ratio ? c.pe_ratio.toFixed(1) + "x" : "—"},
+    {label: "EV/EBITDA", value: c.ev_ebitda ? c.ev_ebitda.toFixed(1) + "x" : "—"},
+    {label: "Enterprise Value", value: fmt(v.enterprise_value)},
+    {label: "Equity Value", value: fmt(v.equity_value)},
+    {label: "EBIT Margin", value: pct(v.ebit_margin)},
+    {label: "Eff. Tax Rate", value: pct(v.tax_rate_used)},
+  ];
+  document.getElementById("statGrid").innerHTML = stats.map(s =>
+    `<div class="stat-card"><div class="label">${s.label}</div><div class="value">${s.value}</div></div>`
+  ).join("");
+
+  // Projections table
+  const p = v.projections;
+  let projHTML = `<thead><tr><th>Year</th><th>Revenue</th><th>EBIT</th><th>NOPAT</th><th>D&A</th><th>CapEx</th><th>ΔNWC</th><th>UFCF</th><th>Disc. Factor</th><th>PV of UFCF</th></tr></thead><tbody>`;
+  p.forEach(r => {
+    projHTML += `<tr>
+      <td>Year ${r.year}</td><td>${fmt(r.revenue)}</td><td>${fmt(r.ebit)}</td><td>${fmt(r.nopat)}</td>
+      <td>${fmt(r.da)}</td><td>${fmt(r.capex)}</td><td>${fmt(r.nwc_change)}</td>
+      <td>${fmt(r.ufcf)}</td><td>${r.discount_factor.toFixed(4)}</td><td>${fmt(r.pv_ufcf)}</td>
+    </tr>`;
+  });
+  projHTML += "</tbody>";
+  document.getElementById("projTable").innerHTML = projHTML;
+
+  // Valuation table
+  let valHTML = "<tbody>";
+  const valRows = [
+    ["Sum of PV (UFCF)", fmt(v.sum_pv_ufcf)],
+    ["Terminal Value", fmt(v.terminal_value)],
+    ["PV of Terminal Value", fmt(v.pv_terminal)],
+    ["Enterprise Value", fmt(v.enterprise_value)],
+    ["+ Cash", fmt(c.cash)],
+    ["− Debt", fmt(c.debt)],
+    ["Equity Value", fmt(v.equity_value)],
+    ["÷ Shares Outstanding", c.shares_outstanding ? (c.shares_outstanding / 1e9).toFixed(2) + "B" : "—"],
+    ["Implied Share Price", dollar(v.implied_share_price)],
+    ["Current Market Price", dollar(v.current_price)],
+    ["Upside / Downside", (up >= 0 ? "+" : "") + up.toFixed(1) + "%"],
+  ];
+  valRows.forEach(([lbl, val]) => {
+    valHTML += `<tr><td>${lbl}</td><td>${val}</td></tr>`;
+  });
+  valHTML += "</tbody>";
+  document.getElementById("valTable").innerHTML = valHTML;
+
+  // Sensitivity table
+  const sens = v.sensitivity;
+  const tgRange = v.sensitivity_tg_range;
+  const userWacc = data.assumptions.wacc;
+  const userTg = data.assumptions.terminal_growth;
+  let sensHTML = `<thead><tr><th>WACC \\ TG</th>`;
+  tgRange.forEach(tg => sensHTML += `<th>${(tg*100).toFixed(1)}%</th>`);
+  sensHTML += "</tr></thead><tbody>";
+  sens.forEach(row => {
+    const isWaccRow = Math.abs(row.wacc - userWacc) < 0.0001;
+    sensHTML += `<tr><td style="text-align:left;font-weight:600">${(row.wacc*100).toFixed(1)}%</td>`;
+    row.values.forEach((val, i) => {
+      const isTgCol = Math.abs(tgRange[i] - userTg) < 0.0001;
+      const cls = (isWaccRow && isTgCol) ? ' class="highlight"' : '';
+      sensHTML += `<td${cls}>${val != null ? dollar(val) : "—"}</td>`;
+    });
+    sensHTML += "</tr>";
+  });
+  sensHTML += "</tbody>";
+  document.getElementById("sensTable").innerHTML = sensHTML;
+
+  document.getElementById("results").classList.add("active");
+  document.getElementById("recBanner").scrollIntoView({behavior:"smooth", block:"start"});
+}
+
+// ──────────────────────────────────────────────
+// Excel Export
+// ──────────────────────────────────────────────
+function exportExcel() {
+  if (!lastData) return;
+  const c = lastData.company;
+  const v = lastData.valuation;
+  const a = lastData.assumptions;
+  const wb = XLSX.utils.book_new();
+
+  // Sheet 1: Summary
+  const summaryData = [
+    ["DCF Valuation Summary"],
+    [],
+    ["Company", c.name],
+    ["Ticker", c.ticker],
+    ["Sector", c.sector],
+    ["Current Price", v.current_price],
+    ["Implied Share Price", v.implied_share_price],
+    ["Upside/Downside", v.upside_pct / 100],
+    ["Recommendation", v.recommendation],
+    [],
+    ["Assumptions"],
+    ["WACC", a.wacc],
+    ["Revenue Growth", a.revenue_growth],
+    ["Terminal Growth", a.terminal_growth],
+    ["Projection Years", a.projection_years],
+    [],
+    ["Valuation"],
+    ["Enterprise Value", v.enterprise_value],
+    ["+ Cash", c.cash],
+    ["- Debt", c.debt],
+    ["Equity Value", v.equity_value],
+    ["Shares Outstanding", c.shares_outstanding],
+    ["Implied Share Price", v.implied_share_price],
+  ];
+  const ws1 = XLSX.utils.aoa_to_sheet(summaryData);
+  XLSX.utils.book_append_sheet(wb, ws1, "Summary");
+
+  // Sheet 2: Projections
+  const projHeaders = ["Year", "Revenue", "EBIT", "NOPAT", "D&A", "CapEx", "NWC Change", "UFCF", "Discount Factor", "PV of UFCF"];
+  const projRows = v.projections.map(r => [
+    "Year " + r.year, r.revenue, r.ebit, r.nopat, r.da, r.capex, r.nwc_change, r.ufcf, r.discount_factor, r.pv_ufcf
+  ]);
+  const ws2 = XLSX.utils.aoa_to_sheet([projHeaders, ...projRows]);
+  XLSX.utils.book_append_sheet(wb, ws2, "DCF Model");
+
+  // Sheet 3: Sensitivity
+  const tgRange = v.sensitivity_tg_range;
+  const sensHeaders = ["WACC \\ TG", ...tgRange.map(t => (t*100).toFixed(1) + "%")];
+  const sensRows = v.sensitivity.map(row => [
+    (row.wacc*100).toFixed(1) + "%", ...row.values.map(v => v != null ? v : "")
+  ]);
+  const ws3 = XLSX.utils.aoa_to_sheet([sensHeaders, ...sensRows]);
+  XLSX.utils.book_append_sheet(wb, ws3, "Sensitivity");
+
+  XLSX.writeFile(wb, `DCF_${c.ticker}.xlsx`);
+}
+
+// Run on Enter key
+document.querySelectorAll('.field input').forEach(input => {
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') runDCF(); });
+});
+</script>
+</body>
+</html>
