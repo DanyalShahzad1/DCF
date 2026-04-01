@@ -1,10 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 import yfinance as yf
 import math
-import os
+import traceback
 
 app = FastAPI()
 
@@ -24,26 +24,30 @@ class DCFRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 def fetch_financials(ticker: str) -> dict:
-    stock = yf.Ticker(ticker)
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch data for '{ticker}': {str(e)}")
 
-    info = stock.info
-    if not info or info.get("regularMarketPrice") is None:
-        # Try currentPrice as fallback
-        if info.get("currentPrice") is None:
-            raise HTTPException(status_code=404, detail=f"Ticker '{ticker}' not found or has no data.")
+    if not info or (info.get("regularMarketPrice") is None and info.get("currentPrice") is None):
+        raise HTTPException(status_code=404, detail=f"Ticker '{ticker}' not found or has no price data.")
 
-    income = stock.financials          # annual income statement
-    cashflow = stock.cashflow          # annual cash flow
-    balance = stock.balance_sheet      # annual balance sheet
+    try:
+        income = stock.financials
+        cashflow = stock.cashflow
+        balance = stock.balance_sheet
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch financial statements for '{ticker}': {str(e)}")
 
-    if income.empty or cashflow.empty or balance.empty:
-        raise HTTPException(status_code=404, detail=f"No financial statements found for '{ticker}'.")
-
-    # --- Latest year data ---
-    latest_col = income.columns[0]
+    if income is None or income.empty:
+        raise HTTPException(status_code=404, detail=f"No income statement found for '{ticker}'.")
+    if cashflow is None or cashflow.empty:
+        raise HTTPException(status_code=404, detail=f"No cash flow statement found for '{ticker}'.")
+    if balance is None or balance.empty:
+        raise HTTPException(status_code=404, detail=f"No balance sheet found for '{ticker}'.")
 
     def safe(df, keys, col=None):
-        """Return first matching row value, or 0."""
         if col is None:
             col = df.columns[0]
         for k in keys:
@@ -60,13 +64,11 @@ def fetch_financials(ticker: str) -> dict:
     tax_provision = safe(income, ["Tax Provision", "Income Tax Expense"])
     pretax_income = safe(income, ["Pretax Income", "Income Before Tax"])
 
-    # Effective tax rate
     if pretax_income != 0:
         tax_rate = max(0, min(tax_provision / pretax_income, 0.40))
     else:
-        tax_rate = 0.21  # default US corporate
+        tax_rate = 0.21
 
-    # Change in net working capital (approx)
     def wc(col):
         ca = safe(balance, ["Current Assets", "Total Current Assets"], col)
         cl = safe(balance, ["Current Liabilities", "Total Current Liabilities"], col)
@@ -77,9 +79,8 @@ def fetch_financials(ticker: str) -> dict:
     else:
         nwc_change = 0.0
 
-    # Market data
     price = info.get("regularMarketPrice") or info.get("currentPrice", 0)
-    shares = info.get("sharesOutstanding", 0)
+    shares = info.get("sharesOutstanding", 0) or 0
     cash = info.get("totalCash", 0) or 0
     debt = info.get("totalDebt", 0) or 0
     name = info.get("shortName", ticker.upper())
@@ -88,29 +89,20 @@ def fetch_financials(ticker: str) -> dict:
     pe = info.get("trailingPE", None)
     ev_ebitda = info.get("enterpriseToEbitda", None)
 
-    # Historical revenue (for context)
     hist_revenue = []
     for col in reversed(income.columns):
         r = safe(income, ["Total Revenue", "Revenue"], col)
         hist_revenue.append(r)
 
+    if shares == 0:
+        raise HTTPException(status_code=400, detail=f"No shares outstanding data for '{ticker}'.")
+
     return {
-        "name": name,
-        "ticker": ticker.upper(),
-        "sector": sector,
-        "price": price,
-        "shares_outstanding": shares,
-        "market_cap": market_cap,
-        "cash": cash,
-        "debt": debt,
-        "pe_ratio": pe,
-        "ev_ebitda": ev_ebitda,
-        "latest_revenue": revenue,
-        "latest_ebit": ebit,
-        "depreciation": depreciation,
-        "capex": capex,
-        "tax_rate": tax_rate,
-        "nwc_change": nwc_change,
+        "name": name, "ticker": ticker.upper(), "sector": sector,
+        "price": price, "shares_outstanding": shares, "market_cap": market_cap,
+        "cash": cash, "debt": debt, "pe_ratio": pe, "ev_ebitda": ev_ebitda,
+        "latest_revenue": revenue, "latest_ebit": ebit, "depreciation": depreciation,
+        "capex": capex, "tax_rate": tax_rate, "nwc_change": nwc_change,
         "hist_revenue": hist_revenue,
     }
 
@@ -134,35 +126,26 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
 
     ebit_margin = ebit / revenue if revenue else 0
 
-    # --- Project free cash flows ---
     projections = []
     for yr in range(1, years + 1):
         proj_revenue = revenue * ((1 + revenue_growth) ** yr)
         proj_ebit = proj_revenue * ebit_margin
         nopat = proj_ebit * (1 - tax_rate)
-        # Scale D&A and CapEx with revenue growth
         scale = ((1 + revenue_growth) ** yr)
         proj_da = depreciation * scale
         proj_capex = capex * scale
-        proj_nwc = nwc_change * (1 + revenue_growth)  # simplified
+        proj_nwc = nwc_change * (1 + revenue_growth)
         ufcf = nopat + proj_da - proj_capex - proj_nwc
         discount_factor = 1 / ((1 + wacc) ** yr)
         pv = ufcf * discount_factor
 
         projections.append({
-            "year": yr,
-            "revenue": round(proj_revenue),
-            "ebit": round(proj_ebit),
-            "nopat": round(nopat),
-            "da": round(proj_da),
-            "capex": round(proj_capex),
-            "nwc_change": round(proj_nwc),
-            "ufcf": round(ufcf),
-            "discount_factor": round(discount_factor, 4),
-            "pv_ufcf": round(pv),
+            "year": yr, "revenue": round(proj_revenue), "ebit": round(proj_ebit),
+            "nopat": round(nopat), "da": round(proj_da), "capex": round(proj_capex),
+            "nwc_change": round(proj_nwc), "ufcf": round(ufcf),
+            "discount_factor": round(discount_factor, 4), "pv_ufcf": round(pv),
         })
 
-    # --- Terminal value ---
     final_ufcf = projections[-1]["ufcf"]
     if wacc <= terminal_growth:
         raise HTTPException(status_code=400, detail="WACC must be greater than terminal growth rate.")
@@ -170,7 +153,6 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
     terminal_value = (final_ufcf * (1 + terminal_growth)) / (wacc - terminal_growth)
     pv_terminal = terminal_value / ((1 + wacc) ** years)
 
-    # --- Enterprise & equity value ---
     sum_pv_ufcf = sum(p["pv_ufcf"] for p in projections)
     enterprise_value = sum_pv_ufcf + pv_terminal
     equity_value = enterprise_value + cash - debt
@@ -179,7 +161,6 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
     current_price = data["price"]
     upside = ((implied_share_price - current_price) / current_price * 100) if current_price else 0
 
-    # Recommendation
     if upside > 15:
         recommendation = "BUY"
     elif upside < -15:
@@ -187,7 +168,6 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
     else:
         recommendation = "HOLD"
 
-    # --- Sensitivity table (WACC vs Terminal Growth) ---
     wacc_range = [round(wacc + d, 4) for d in [-0.02, -0.01, 0, 0.01, 0.02]]
     tg_range = [round(terminal_growth + d, 4) for d in [-0.01, -0.005, 0, 0.005, 0.01]]
 
@@ -200,7 +180,6 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
             else:
                 tv = (final_ufcf * (1 + tg)) / (w - tg)
                 pv_tv = tv / ((1 + w) ** years)
-                # Recalculate PV of UFCFs with this WACC
                 spv = sum(p["ufcf"] / ((1 + w) ** p["year"]) for p in projections)
                 ev = spv + pv_tv
                 eq = ev + cash - debt
@@ -209,20 +188,13 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
         sensitivity.append(row)
 
     return {
-        "projections": projections,
-        "terminal_value": round(terminal_value),
-        "pv_terminal": round(pv_terminal),
-        "sum_pv_ufcf": round(sum_pv_ufcf),
-        "enterprise_value": round(enterprise_value),
-        "equity_value": round(equity_value),
-        "implied_share_price": round(implied_share_price, 2),
-        "current_price": current_price,
-        "upside_pct": round(upside, 2),
-        "recommendation": recommendation,
-        "ebit_margin": round(ebit_margin * 100, 2),
-        "tax_rate_used": round(tax_rate * 100, 2),
-        "sensitivity": sensitivity,
-        "sensitivity_tg_range": tg_range,
+        "projections": projections, "terminal_value": round(terminal_value),
+        "pv_terminal": round(pv_terminal), "sum_pv_ufcf": round(sum_pv_ufcf),
+        "enterprise_value": round(enterprise_value), "equity_value": round(equity_value),
+        "implied_share_price": round(implied_share_price, 2), "current_price": current_price,
+        "upside_pct": round(upside, 2), "recommendation": recommendation,
+        "ebit_margin": round(ebit_margin * 100, 2), "tax_rate_used": round(tax_rate * 100, 2),
+        "sensitivity": sensitivity, "sensitivity_tg_range": tg_range,
     }
 
 # ---------------------------------------------------------------------------
@@ -231,48 +203,47 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
 
 @app.post("/api/dcf")
 def dcf_endpoint(req: DCFRequest):
-    ticker = req.ticker.strip().upper()
-    if not ticker:
-        raise HTTPException(status_code=400, detail="Ticker is required.")
+    try:
+        ticker = req.ticker.strip().upper()
+        if not ticker:
+            raise HTTPException(status_code=400, detail="Ticker is required.")
 
-    data = fetch_financials(ticker)
-    result = run_dcf(data, req.wacc, req.terminal_growth, req.revenue_growth, req.projection_years)
+        data = fetch_financials(ticker)
+        result = run_dcf(data, req.wacc, req.terminal_growth, req.revenue_growth, req.projection_years)
 
-    return {
-        "company": {
-            "name": data["name"],
-            "ticker": data["ticker"],
-            "sector": data["sector"],
-            "price": data["price"],
-            "shares_outstanding": data["shares_outstanding"],
-            "market_cap": data["market_cap"],
-            "cash": data["cash"],
-            "debt": data["debt"],
-            "pe_ratio": data["pe_ratio"],
-            "ev_ebitda": data["ev_ebitda"],
-            "hist_revenue": data["hist_revenue"],
-        },
-        "assumptions": {
-            "wacc": req.wacc,
-            "terminal_growth": req.terminal_growth,
-            "revenue_growth": req.revenue_growth,
-            "projection_years": req.projection_years,
-        },
-        "valuation": result,
-    }
+        return {
+            "company": {
+                "name": data["name"], "ticker": data["ticker"], "sector": data["sector"],
+                "price": data["price"], "shares_outstanding": data["shares_outstanding"],
+                "market_cap": data["market_cap"], "cash": data["cash"], "debt": data["debt"],
+                "pe_ratio": data["pe_ratio"], "ev_ebitda": data["ev_ebitda"],
+                "hist_revenue": data["hist_revenue"],
+            },
+            "assumptions": {
+                "wacc": req.wacc, "terminal_growth": req.terminal_growth,
+                "revenue_growth": req.revenue_growth, "projection_years": req.projection_years,
+            },
+            "valuation": result,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"ERROR for ticker {req.ticker}: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Server error analyzing '{req.ticker}': {str(e)}"}
+        )
 
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
 
 # ---------------------------------------------------------------------------
-# Serve frontend (static files)
+# Serve frontend
 # ---------------------------------------------------------------------------
 
-# Serve static assets (CSS, JS, images)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Catch-all: serve index.html for any non-API route
 @app.get("/{full_path:path}")
 def serve_frontend(full_path: str = ""):
     return FileResponse("static/index.html")
