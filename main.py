@@ -6,6 +6,9 @@ import yfinance as yf
 import math
 import traceback
 
+# Fix for cloud environments
+yf.set_tz_cache_location("/tmp/yf_cache")
+
 app = FastAPI()
 
 # ---------------------------------------------------------------------------
@@ -25,8 +28,10 @@ class DCFRequest(BaseModel):
 
 def fetch_financials(ticker: str) -> dict:
     try:
-        stock = yf.Ticker(ticker)
+        stock = yf.Ticker(ticker, session=None)
         info = stock.info
+        if not info or len(info) <= 1:
+            raise Exception("Empty response from Yahoo Finance")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch data for '{ticker}': {str(e)}")
 
