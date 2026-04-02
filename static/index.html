@@ -297,7 +297,9 @@ async function lookupTicker(){
     document.getElementById("modelInputs").innerHTML=`
       <div class="wb-item"><div class="wb-label">EBIT Margin</div><div class="wb-val">${mi.ebit_margin}%</div></div>
       <div class="wb-item"><div class="wb-label">D&A (% Rev)</div><div class="wb-val">${mi.da_pct}%</div></div>
-      <div class="wb-item"><div class="wb-label">CapEx (% Rev)</div><div class="wb-val">${mi.capex_pct}%</div></div>
+      <div class="wb-item"><div class="wb-label">CapEx Now</div><div class="wb-val">${mi.capex_pct_current}% of rev</div></div>
+      <div class="wb-item"><div class="wb-label">CapEx Mature</div><div class="wb-val">${mi.capex_pct_mature}% of rev</div></div>
+      <div class="wb-item"><div class="wb-label">CapEx Fade</div><div class="wb-val">${mi.capex_pct_current}% → ${mi.capex_pct_mature}%</div></div>
       <div class="wb-item"><div class="wb-label">NWC (% ΔRev)</div><div class="wb-val">${mi.nwc_pct}%</div></div>
     `;
 
