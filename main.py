@@ -17,10 +17,13 @@ app = FastAPI()
 
 class DCFRequest(BaseModel):
     ticker: str
-    wacc: float            # e.g. 0.10 for 10%
-    terminal_growth: float # e.g. 0.025 for 2.5%
-    revenue_growth: float  # e.g. 0.05 for 5%
+    wacc: float
+    terminal_growth: float
+    revenue_growth: float
     projection_years: int = 5
+
+class TickerLookup(BaseModel):
+    ticker: str
 
 # ---------------------------------------------------------------------------
 # Helper: pull financials from yfinance
@@ -68,6 +71,7 @@ def fetch_financials(ticker: str) -> dict:
     capex = abs(safe(cashflow, ["Capital Expenditure", "Capital Expenditures"]))
     tax_provision = safe(income, ["Tax Provision", "Income Tax Expense"])
     pretax_income = safe(income, ["Pretax Income", "Income Before Tax"])
+    interest_expense = abs(safe(income, ["Interest Expense", "Interest Expense Non Operating"]))
 
     if pretax_income != 0:
         tax_rate = max(0, min(tax_provision / pretax_income, 0.40))
@@ -93,7 +97,9 @@ def fetch_financials(ticker: str) -> dict:
     market_cap = info.get("marketCap", 0) or 0
     pe = info.get("trailingPE", None)
     ev_ebitda = info.get("enterpriseToEbitda", None)
+    beta = info.get("beta", None)
 
+    # Historical revenue for growth calc
     hist_revenue = []
     for col in reversed(income.columns):
         r = safe(income, ["Total Revenue", "Revenue"], col)
@@ -102,13 +108,72 @@ def fetch_financials(ticker: str) -> dict:
     if shares == 0:
         raise HTTPException(status_code=400, detail=f"No shares outstanding data for '{ticker}'.")
 
+    # --- Auto-calculate assumptions ---
+
+    # 1. Revenue growth (average historical)
+    growth_rates = []
+    for i in range(1, len(hist_revenue)):
+        if hist_revenue[i - 1] > 0 and hist_revenue[i] > 0:
+            gr = (hist_revenue[i] - hist_revenue[i - 1]) / hist_revenue[i - 1]
+            growth_rates.append(gr)
+    if growth_rates:
+        avg_revenue_growth = sum(growth_rates) / len(growth_rates)
+        # Cap between -10% and 30%
+        avg_revenue_growth = max(-0.10, min(avg_revenue_growth, 0.30))
+    else:
+        avg_revenue_growth = 0.05
+
+    # 2. WACC (CAPM-based)
+    risk_free_rate = 0.043  # ~4.3% (approx US 10Y yield)
+    equity_risk_premium = 0.055  # ~5.5% standard ERP
+
+    if beta and beta > 0:
+        cost_of_equity = risk_free_rate + beta * equity_risk_premium
+    else:
+        cost_of_equity = risk_free_rate + 1.0 * equity_risk_premium  # assume beta=1
+
+    # Cost of debt
+    if debt > 0 and interest_expense > 0:
+        cost_of_debt = interest_expense / debt
+    else:
+        cost_of_debt = 0.05  # assume 5%
+
+    equity_value_market = market_cap if market_cap > 0 else (price * shares)
+    total_capital = equity_value_market + debt
+
+    if total_capital > 0:
+        weight_equity = equity_value_market / total_capital
+        weight_debt = debt / total_capital
+    else:
+        weight_equity = 1.0
+        weight_debt = 0.0
+
+    calc_wacc = (weight_equity * cost_of_equity) + (weight_debt * cost_of_debt * (1 - tax_rate))
+    # Cap between 5% and 20%
+    calc_wacc = max(0.05, min(calc_wacc, 0.20))
+
+    # 3. Terminal growth (default 2.5%)
+    terminal_growth = 0.025
+
     return {
         "name": name, "ticker": ticker.upper(), "sector": sector,
         "price": price, "shares_outstanding": shares, "market_cap": market_cap,
         "cash": cash, "debt": debt, "pe_ratio": pe, "ev_ebitda": ev_ebitda,
+        "beta": beta,
         "latest_revenue": revenue, "latest_ebit": ebit, "depreciation": depreciation,
-        "capex": capex, "tax_rate": tax_rate, "nwc_change": nwc_change,
-        "hist_revenue": hist_revenue,
+        "capex": capex, "tax_rate": tax_rate, "interest_expense": interest_expense,
+        "nwc_change": nwc_change, "hist_revenue": hist_revenue,
+        # Auto-calculated assumptions
+        "calc_wacc": round(calc_wacc, 4),
+        "calc_revenue_growth": round(avg_revenue_growth, 4),
+        "calc_terminal_growth": terminal_growth,
+        # WACC components (for transparency)
+        "cost_of_equity": round(cost_of_equity, 4),
+        "cost_of_debt": round(cost_of_debt, 4),
+        "weight_equity": round(weight_equity, 4),
+        "weight_debt": round(weight_debt, 4),
+        "risk_free_rate": risk_free_rate,
+        "equity_risk_premium": equity_risk_premium,
     }
 
 # ---------------------------------------------------------------------------
@@ -206,6 +271,46 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
 # API routes
 # ---------------------------------------------------------------------------
 
+@app.post("/api/lookup")
+def lookup_endpoint(req: TickerLookup):
+    """Return company data + auto-calculated assumptions (no DCF yet)."""
+    try:
+        ticker = req.ticker.strip().upper()
+        if not ticker:
+            raise HTTPException(status_code=400, detail="Ticker is required.")
+
+        data = fetch_financials(ticker)
+
+        return {
+            "company": {
+                "name": data["name"], "ticker": data["ticker"], "sector": data["sector"],
+                "price": data["price"], "shares_outstanding": data["shares_outstanding"],
+                "market_cap": data["market_cap"], "cash": data["cash"], "debt": data["debt"],
+                "pe_ratio": data["pe_ratio"], "ev_ebitda": data["ev_ebitda"],
+                "beta": data["beta"], "hist_revenue": data["hist_revenue"],
+            },
+            "auto_assumptions": {
+                "wacc": round(data["calc_wacc"] * 100, 2),
+                "revenue_growth": round(data["calc_revenue_growth"] * 100, 2),
+                "terminal_growth": round(data["calc_terminal_growth"] * 100, 2),
+            },
+            "wacc_breakdown": {
+                "risk_free_rate": round(data["risk_free_rate"] * 100, 2),
+                "equity_risk_premium": round(data["equity_risk_premium"] * 100, 2),
+                "beta": data["beta"],
+                "cost_of_equity": round(data["cost_of_equity"] * 100, 2),
+                "cost_of_debt": round(data["cost_of_debt"] * 100, 2),
+                "weight_equity": round(data["weight_equity"] * 100, 2),
+                "weight_debt": round(data["weight_debt"] * 100, 2),
+                "tax_rate": round(data["tax_rate"] * 100, 2),
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"ERROR lookup {req.ticker}: {traceback.format_exc()}")
+        return JSONResponse(status_code=500, content={"detail": f"Server error: {str(e)}"})
+
 @app.post("/api/dcf")
 def dcf_endpoint(req: DCFRequest):
     try:
@@ -222,7 +327,7 @@ def dcf_endpoint(req: DCFRequest):
                 "price": data["price"], "shares_outstanding": data["shares_outstanding"],
                 "market_cap": data["market_cap"], "cash": data["cash"], "debt": data["debt"],
                 "pe_ratio": data["pe_ratio"], "ev_ebitda": data["ev_ebitda"],
-                "hist_revenue": data["hist_revenue"],
+                "beta": data["beta"], "hist_revenue": data["hist_revenue"],
             },
             "assumptions": {
                 "wacc": req.wacc, "terminal_growth": req.terminal_growth,
@@ -234,10 +339,7 @@ def dcf_endpoint(req: DCFRequest):
         raise
     except Exception as e:
         print(f"ERROR for ticker {req.ticker}: {traceback.format_exc()}")
-        return JSONResponse(
-            status_code=500,
-            content={"detail": f"Server error analyzing '{req.ticker}': {str(e)}"}
-        )
+        return JSONResponse(status_code=500, content={"detail": f"Server error analyzing '{req.ticker}': {str(e)}"})
 
 @app.get("/api/health")
 def health():
