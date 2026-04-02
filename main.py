@@ -5,11 +5,17 @@ from pydantic import BaseModel
 import yfinance as yf
 import math
 import traceback
+import httpx
+import json
+import os
 
 # Fix for cloud environments
 yf.set_tz_cache_location("/tmp/yf_cache")
 
 app = FastAPI()
+
+# Claude API key from environment variable
+CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY", "")
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -20,7 +26,7 @@ class DCFRequest(BaseModel):
     wacc: float
     terminal_growth: float
     revenue_growth: float
-    projection_years: int = 5
+    projection_years: int = 10
 
 class TickerLookup(BaseModel):
     ticker: str
@@ -78,7 +84,6 @@ def fetch_financials(ticker: str) -> dict:
     else:
         tax_rate = 0.21
 
-    # Compute NWC change as % of revenue change (more stable)
     def wc(col):
         ca = safe(balance, ["Current Assets", "Total Current Assets"], col)
         cl = safe(balance, ["Current Liabilities", "Total Current Liabilities"], col)
@@ -88,21 +93,17 @@ def fetch_financials(ticker: str) -> dict:
     if len(balance.columns) >= 2:
         nwc_change_abs = wc(balance.columns[0]) - wc(balance.columns[1])
 
-    # Revenue from prior year for delta
     rev_prior = 0.0
     if len(income.columns) >= 2:
         rev_prior = safe(income, ["Total Revenue", "Revenue"], income.columns[1])
 
     rev_delta = revenue - rev_prior if rev_prior > 0 else revenue
-    # NWC as % of revenue change (how much working capital grows per $ of revenue growth)
     if rev_delta != 0 and abs(rev_delta) > 1e6:
         nwc_pct_of_rev_change = nwc_change_abs / rev_delta
-        # Cap this to a reasonable range — can be negative (source of cash) or positive (use of cash)
         nwc_pct_of_rev_change = max(-0.20, min(nwc_pct_of_rev_change, 0.20))
     else:
-        nwc_pct_of_rev_change = 0.02  # default 2%
+        nwc_pct_of_rev_change = 0.02
 
-    # D&A and CapEx as % of revenue (much more stable for projections)
     da_pct = (depreciation / revenue) if revenue > 0 else 0.03
     capex_pct = (capex / revenue) if revenue > 0 else 0.04
 
@@ -112,12 +113,12 @@ def fetch_financials(ticker: str) -> dict:
     debt = info.get("totalDebt", 0) or 0
     name = info.get("shortName", ticker.upper())
     sector = info.get("sector", "N/A")
+    industry = info.get("industry", "N/A")
     market_cap = info.get("marketCap", 0) or 0
     pe = info.get("trailingPE", None)
     ev_ebitda = info.get("enterpriseToEbitda", None)
     beta = info.get("beta", None)
 
-    # Historical revenue for growth calc
     hist_revenue = []
     for col in reversed(income.columns):
         r = safe(income, ["Total Revenue", "Revenue"], col)
@@ -126,9 +127,28 @@ def fetch_financials(ticker: str) -> dict:
     if shares == 0:
         raise HTTPException(status_code=400, detail=f"No shares outstanding data for '{ticker}'.")
 
-    # --- Auto-calculate assumptions ---
+    # --- Fallback WACC calc (used if AI fails) ---
+    risk_free_rate = 0.043
+    equity_risk_premium = 0.055
+    if beta and beta > 0:
+        cost_of_equity = risk_free_rate + beta * equity_risk_premium
+    else:
+        cost_of_equity = risk_free_rate + 1.0 * equity_risk_premium
+    if debt > 0 and interest_expense > 0:
+        cost_of_debt = interest_expense / debt
+    else:
+        cost_of_debt = 0.05
+    equity_value_market = market_cap if market_cap > 0 else (price * shares)
+    total_capital = equity_value_market + debt
+    if total_capital > 0:
+        weight_equity = equity_value_market / total_capital
+        weight_debt = debt / total_capital
+    else:
+        weight_equity = 1.0
+        weight_debt = 0.0
+    calc_wacc = (weight_equity * cost_of_equity) + (weight_debt * cost_of_debt * (1 - tax_rate))
+    calc_wacc = max(0.05, min(calc_wacc, 0.20))
 
-    # 1. Revenue growth (average historical)
     growth_rates = []
     for i in range(1, len(hist_revenue)):
         if hist_revenue[i - 1] > 0 and hist_revenue[i] > 0:
@@ -140,51 +160,21 @@ def fetch_financials(ticker: str) -> dict:
     else:
         avg_revenue_growth = 0.05
 
-    # 2. WACC (CAPM-based)
-    risk_free_rate = 0.043
-    equity_risk_premium = 0.055
-
-    if beta and beta > 0:
-        cost_of_equity = risk_free_rate + beta * equity_risk_premium
-    else:
-        cost_of_equity = risk_free_rate + 1.0 * equity_risk_premium
-
-    if debt > 0 and interest_expense > 0:
-        cost_of_debt = interest_expense / debt
-    else:
-        cost_of_debt = 0.05
-
-    equity_value_market = market_cap if market_cap > 0 else (price * shares)
-    total_capital = equity_value_market + debt
-
-    if total_capital > 0:
-        weight_equity = equity_value_market / total_capital
-        weight_debt = debt / total_capital
-    else:
-        weight_equity = 1.0
-        weight_debt = 0.0
-
-    calc_wacc = (weight_equity * cost_of_equity) + (weight_debt * cost_of_debt * (1 - tax_rate))
-    calc_wacc = max(0.05, min(calc_wacc, 0.20))
-
-    terminal_growth = 0.025
-
     return {
-        "name": name, "ticker": ticker.upper(), "sector": sector,
+        "name": name, "ticker": ticker.upper(), "sector": sector, "industry": industry,
         "price": price, "shares_outstanding": shares, "market_cap": market_cap,
-        "cash": cash, "debt": debt, "pe_ratio": pe, "ev_ebitda": ev_ebitda,
-        "beta": beta,
+        "cash": cash, "debt": debt, "pe_ratio": pe, "ev_ebitda": ev_ebitda, "beta": beta,
         "latest_revenue": revenue, "latest_ebit": ebit,
         "depreciation": depreciation, "capex": capex,
         "da_pct": da_pct, "capex_pct": capex_pct,
         "tax_rate": tax_rate, "interest_expense": interest_expense,
         "nwc_pct_of_rev_change": nwc_pct_of_rev_change,
         "hist_revenue": hist_revenue,
-        # Auto-calculated assumptions
+        "ebit_margin": (ebit / revenue * 100) if revenue else 0,
+        # Fallback assumptions
         "calc_wacc": round(calc_wacc, 4),
         "calc_revenue_growth": round(avg_revenue_growth, 4),
-        "calc_terminal_growth": terminal_growth,
-        # WACC components
+        "calc_terminal_growth": 0.025,
         "cost_of_equity": round(cost_of_equity, 4),
         "cost_of_debt": round(cost_of_debt, 4),
         "weight_equity": round(weight_equity, 4),
@@ -194,7 +184,121 @@ def fetch_financials(ticker: str) -> dict:
     }
 
 # ---------------------------------------------------------------------------
-# DCF calculation (FIXED)
+# Claude AI: recommend assumptions
+# ---------------------------------------------------------------------------
+
+async def get_ai_assumptions(data: dict) -> dict | None:
+    """Ask Claude to recommend DCF assumptions based on company data."""
+    if not CLAUDE_API_KEY:
+        return None
+
+    hist_rev_str = ""
+    for i, r in enumerate(data["hist_revenue"]):
+        hist_rev_str += f"  Year {i+1}: ${r/1e9:.1f}B\n"
+
+    growth_rates_str = ""
+    hr = data["hist_revenue"]
+    for i in range(1, len(hr)):
+        if hr[i-1] > 0:
+            gr = (hr[i] - hr[i-1]) / hr[i-1] * 100
+            growth_rates_str += f"  Year {i} → {i+1}: {gr:.1f}%\n"
+
+    prompt = f"""You are a senior equity research analyst. Based on the financial data below, recommend DCF model assumptions for {data['name']} ({data['ticker']}).
+
+COMPANY DATA:
+- Sector: {data['sector']}
+- Industry: {data['industry']}
+- Market Cap: ${data['market_cap']/1e9:.1f}B
+- Current Price: ${data['price']:.2f}
+- Beta: {data['beta'] if data['beta'] else 'N/A'}
+- P/E Ratio: {data['pe_ratio']:.1f}x if data['pe_ratio'] else 'N/A'
+- EV/EBITDA: {data['ev_ebitda']:.1f}x if data['ev_ebitda'] else 'N/A'
+
+FINANCIALS:
+- Latest Revenue: ${data['latest_revenue']/1e9:.1f}B
+- EBIT Margin: {data['ebit_margin']:.1f}%
+- Historical Revenue:
+{hist_rev_str}
+- Revenue Growth Rates:
+{growth_rates_str}
+- Cash: ${data['cash']/1e9:.1f}B
+- Debt: ${data['debt']/1e9:.1f}B
+- Tax Rate: {data['tax_rate']*100:.1f}%
+- Cost of Equity (CAPM): {data['cost_of_equity']*100:.1f}%
+- Cost of Debt: {data['cost_of_debt']*100:.1f}%
+- Equity Weight: {data['weight_equity']*100:.1f}%
+- Debt Weight: {data['weight_debt']*100:.1f}%
+
+RESPOND WITH ONLY THIS JSON FORMAT (no markdown, no backticks, no extra text):
+{{
+  "wacc": <number as percentage e.g. 9.5>,
+  "wacc_reasoning": "<1-2 sentences explaining your WACC choice>",
+  "revenue_growth": <number as percentage e.g. 12.0>,
+  "revenue_growth_reasoning": "<1-2 sentences explaining your growth assumption>",
+  "terminal_growth": <number as percentage e.g. 2.5>,
+  "terminal_growth_reasoning": "<1-2 sentences explaining your terminal growth>",
+  "projection_years": <integer between 5 and 15>,
+  "projection_years_reasoning": "<1 sentence explaining projection period>",
+  "overall_analysis": "<2-3 sentences with key takeaways about this company's valuation>"
+}}
+
+Important rules:
+- WACC should typically be between 6% and 15%
+- Revenue growth should reflect a realistic forward-looking estimate, not just historical average
+- Terminal growth should be between 1.5% and 3.5%
+- Consider the company's competitive position, industry trends, and growth trajectory
+- Be specific to THIS company, not generic"""
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "Content-Type": "application/json",
+                    "x-api-key": CLAUDE_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                },
+                json={
+                    "model": "claude-sonnet-4-20250514",
+                    "max_tokens": 500,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            )
+
+        if response.status_code != 200:
+            print(f"Claude API error: {response.status_code} {response.text}")
+            return None
+
+        result = response.json()
+        text = result["content"][0]["text"].strip()
+        # Clean potential markdown formatting
+        text = text.replace("```json", "").replace("```", "").strip()
+        parsed = json.loads(text)
+
+        # Validate ranges
+        wacc = max(5.0, min(float(parsed["wacc"]), 20.0))
+        rev_growth = max(-10.0, min(float(parsed["revenue_growth"]), 35.0))
+        term_growth = max(1.0, min(float(parsed["terminal_growth"]), 4.0))
+        proj_years = max(5, min(int(parsed.get("projection_years", 10)), 15))
+
+        return {
+            "wacc": round(wacc, 2),
+            "wacc_reasoning": parsed.get("wacc_reasoning", ""),
+            "revenue_growth": round(rev_growth, 2),
+            "revenue_growth_reasoning": parsed.get("revenue_growth_reasoning", ""),
+            "terminal_growth": round(term_growth, 2),
+            "terminal_growth_reasoning": parsed.get("terminal_growth_reasoning", ""),
+            "projection_years": proj_years,
+            "projection_years_reasoning": parsed.get("projection_years_reasoning", ""),
+            "overall_analysis": parsed.get("overall_analysis", ""),
+        }
+
+    except Exception as e:
+        print(f"Claude AI error: {traceback.format_exc()}")
+        return None
+
+# ---------------------------------------------------------------------------
+# DCF calculation
 # ---------------------------------------------------------------------------
 
 def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: float, years: int) -> dict:
@@ -213,7 +317,6 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
 
     ebit_margin = ebit / revenue if revenue else 0
 
-    # --- Project free cash flows ---
     projections = []
     prev_revenue = revenue
 
@@ -221,18 +324,11 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
         proj_revenue = revenue * ((1 + revenue_growth) ** yr)
         proj_ebit = proj_revenue * ebit_margin
         nopat = proj_ebit * (1 - tax_rate)
-
-        # D&A and CapEx as % of projected revenue (stable scaling)
         proj_da = proj_revenue * da_pct
         proj_capex = proj_revenue * capex_pct
-
-        # NWC change = % of the incremental revenue this year
         rev_increase = proj_revenue - prev_revenue
         proj_nwc_change = rev_increase * nwc_pct
-
-        # UFCF = NOPAT + D&A - CapEx - Change in NWC
         ufcf = nopat + proj_da - proj_capex - proj_nwc_change
-
         discount_factor = 1 / ((1 + wacc) ** yr)
         pv = ufcf * discount_factor
 
@@ -242,19 +338,15 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
             "nwc_change": round(proj_nwc_change), "ufcf": round(ufcf),
             "discount_factor": round(discount_factor, 4), "pv_ufcf": round(pv),
         })
-
         prev_revenue = proj_revenue
 
-    # --- Terminal value ---
     final_ufcf = projections[-1]["ufcf"]
     if wacc <= terminal_growth:
         raise HTTPException(status_code=400, detail="WACC must be greater than terminal growth rate.")
 
-    # TV = FCF_(n+1) / (WACC - g)  where FCF_(n+1) = final_ufcf * (1 + g)
     terminal_value = (final_ufcf * (1 + terminal_growth)) / (wacc - terminal_growth)
     pv_terminal = terminal_value / ((1 + wacc) ** years)
 
-    # --- Enterprise & equity value ---
     sum_pv_ufcf = sum(p["pv_ufcf"] for p in projections)
     enterprise_value = sum_pv_ufcf + pv_terminal
     equity_value = enterprise_value + cash - debt
@@ -270,7 +362,6 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
     else:
         recommendation = "HOLD"
 
-    # --- Sensitivity table ---
     wacc_range = [round(wacc + d, 4) for d in [-0.02, -0.01, 0, 0.01, 0.02]]
     tg_range = [round(terminal_growth + d, 4) for d in [-0.01, -0.005, 0, 0.005, 0.01]]
 
@@ -307,7 +398,7 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
 # ---------------------------------------------------------------------------
 
 @app.post("/api/lookup")
-def lookup_endpoint(req: TickerLookup):
+async def lookup_endpoint(req: TickerLookup):
     try:
         ticker = req.ticker.strip().upper()
         if not ticker:
@@ -315,19 +406,51 @@ def lookup_endpoint(req: TickerLookup):
 
         data = fetch_financials(ticker)
 
+        # Try AI assumptions first, fall back to calculated
+        ai_result = await get_ai_assumptions(data)
+
+        if ai_result:
+            assumptions = {
+                "wacc": ai_result["wacc"],
+                "revenue_growth": ai_result["revenue_growth"],
+                "terminal_growth": ai_result["terminal_growth"],
+                "projection_years": ai_result["projection_years"],
+            }
+            ai_reasoning = {
+                "wacc": ai_result["wacc_reasoning"],
+                "revenue_growth": ai_result["revenue_growth_reasoning"],
+                "terminal_growth": ai_result["terminal_growth_reasoning"],
+                "projection_years": ai_result["projection_years_reasoning"],
+                "overall": ai_result["overall_analysis"],
+                "powered_by_ai": True,
+            }
+        else:
+            assumptions = {
+                "wacc": round(data["calc_wacc"] * 100, 2),
+                "revenue_growth": round(data["calc_revenue_growth"] * 100, 2),
+                "terminal_growth": round(data["calc_terminal_growth"] * 100, 2),
+                "projection_years": 10,
+            }
+            ai_reasoning = {
+                "wacc": "Calculated using CAPM (risk-free rate + beta × equity risk premium) weighted by capital structure.",
+                "revenue_growth": "Based on average historical revenue growth rate.",
+                "terminal_growth": "Standard long-term GDP growth assumption of 2.5%.",
+                "projection_years": "Standard 10-year projection period.",
+                "overall": "AI analysis unavailable. Using formula-based assumptions from historical data.",
+                "powered_by_ai": False,
+            }
+
         return {
             "company": {
                 "name": data["name"], "ticker": data["ticker"], "sector": data["sector"],
+                "industry": data["industry"],
                 "price": data["price"], "shares_outstanding": data["shares_outstanding"],
                 "market_cap": data["market_cap"], "cash": data["cash"], "debt": data["debt"],
                 "pe_ratio": data["pe_ratio"], "ev_ebitda": data["ev_ebitda"],
                 "beta": data["beta"], "hist_revenue": data["hist_revenue"],
             },
-            "auto_assumptions": {
-                "wacc": round(data["calc_wacc"] * 100, 2),
-                "revenue_growth": round(data["calc_revenue_growth"] * 100, 2),
-                "terminal_growth": round(data["calc_terminal_growth"] * 100, 2),
-            },
+            "auto_assumptions": assumptions,
+            "ai_reasoning": ai_reasoning,
             "wacc_breakdown": {
                 "risk_free_rate": round(data["risk_free_rate"] * 100, 2),
                 "equity_risk_premium": round(data["equity_risk_premium"] * 100, 2),
@@ -339,7 +462,7 @@ def lookup_endpoint(req: TickerLookup):
                 "tax_rate": round(data["tax_rate"] * 100, 2),
             },
             "model_inputs": {
-                "ebit_margin": round((data["latest_ebit"] / data["latest_revenue"] * 100) if data["latest_revenue"] else 0, 2),
+                "ebit_margin": round(data["ebit_margin"], 2),
                 "da_pct": round(data["da_pct"] * 100, 2),
                 "capex_pct": round(data["capex_pct"] * 100, 2),
                 "nwc_pct": round(data["nwc_pct_of_rev_change"] * 100, 2),
