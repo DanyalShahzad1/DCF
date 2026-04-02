@@ -106,7 +106,7 @@ footer{text-align:center;padding:2rem 0;color:var(--text-muted);font-family:var(
       <div class="rec-prices"><div class="rec-price-item"><div class="label">Market Price</div><div class="val" id="mktPrice"></div></div><div class="rec-price-item"><div class="label">Implied Value</div><div class="val" id="impliedPrice" style="color:var(--accent)"></div></div><div class="rec-price-item"><div class="label">Upside / Downside</div><div class="val" id="upside"></div></div></div>
       <div class="timestamp" id="modelTimestamp"></div>
     </div>
-    <div class="tabs"><div class="tab active" data-tab="dcf" onclick="switchTab('dcf',this)">DCF Model</div><div class="tab" data-tab="memo" onclick="switchTab('memo',this)">Investment Memo</div><div class="tab" data-tab="charts" onclick="switchTab('charts',this)">Charts</div><div class="tab" data-tab="news" onclick="switchTab('news',this)">News</div></div>
+    <div class="tabs"><div class="tab active" data-tab="dcf" onclick="switchTab('dcf',this)">DCF Model</div><div class="tab" data-tab="memo" onclick="switchTab('memo',this)">Investment Memo</div><div class="tab" data-tab="charts" onclick="switchTab('charts',this)">Charts</div></div>
     <div class="tab-content active" id="tab-dcf">
       <div class="stat-grid" id="statGrid"></div>
       <div class="section"><h3>Projected Unlevered Free Cash Flows</h3><div style="overflow-x:auto"><table id="projTable"></table></div></div>
@@ -117,7 +117,7 @@ footer{text-align:center;padding:2rem 0;color:var(--text-muted);font-family:var(
     </div>
     <div class="tab-content" id="tab-memo"><div class="loader" id="memoLoader"><div class="spinner"></div><p>AI is writing the investment memo...</p></div><div id="memoContent"></div></div>
     <div class="tab-content" id="tab-charts"><div class="chart-grid"><div class="chart-box"><h4>Stock Price (1Y)</h4><canvas id="chartPrice"></canvas></div><div class="chart-box"><h4>Revenue & EBIT</h4><canvas id="chartRevenue"></canvas></div><div class="chart-box"><h4>Net Income & FCF</h4><canvas id="chartFCF"></canvas></div><div class="chart-box"><h4>Profit Margins</h4><canvas id="chartMargins"></canvas></div><div class="chart-box chart-full"><h4>Projected UFCF & CapEx Fade</h4><canvas id="chartProjected"></canvas></div></div></div>
-    <div class="tab-content" id="tab-news"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem"><div class="timestamp" id="newsTimestamp" style="text-align:left"></div><button class="btn btn-secondary btn-small" onclick="loadNews(true)">Refresh News</button></div><div class="loader" id="newsLoader"><div class="spinner"></div><p>Fetching latest news via AI...</p></div><div id="newsContent"></div></div>
+    
   </div>
 </main>
 <footer><div class="container">DCF Engine — AI-powered equity research & valuation. Data via Yahoo Finance. AI by Claude. Not financial advice.</div></footer>
@@ -125,17 +125,17 @@ footer{text-align:center;padding:2rem 0;color:var(--text-muted);font-family:var(
 const fmt=(n)=>{if(n==null||isNaN(n))return"—";if(Math.abs(n)>=1e12)return"$"+(n/1e12).toFixed(2)+"T";if(Math.abs(n)>=1e9)return"$"+(n/1e9).toFixed(2)+"B";if(Math.abs(n)>=1e6)return"$"+(n/1e6).toFixed(1)+"M";return"$"+n.toLocaleString()};
 const pct=(n)=>n!=null?n.toFixed(2)+"%":"—";const dollar=(n)=>n!=null?"$"+n.toFixed(2):"—";
 const fmtTime=(iso)=>{if(!iso)return"";const d=new Date(iso);return"Updated "+d.toLocaleString()};
-let lastData=null,autoAssumptions=null,companyData=null,chartsBuilt=false,newsLoaded=false,memoLoaded=false,activeTab='dcf';
+let lastData=null,autoAssumptions=null,companyData=null,chartsBuilt=false,memoLoaded=false,activeTab='dcf';
 const CI={};
 
 document.querySelectorAll('#step2 input').forEach(inp=>{inp.addEventListener('input',()=>inp.classList.add('user-modified'))});
 
 function pickTicker(t){document.getElementById('ticker').value=t;lookupTicker()}
-function switchTab(tab,el){activeTab=tab;document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));el.classList.add('active');document.getElementById('tab-'+tab).classList.add('active');if(tab==='charts'&&!chartsBuilt&&lastData)buildCharts();if(tab==='news'&&!newsLoaded)loadNews();if(tab==='memo'&&!memoLoaded)loadMemo()}
+function switchTab(tab,el){activeTab=tab;document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));el.classList.add('active');document.getElementById('tab-'+tab).classList.add('active');if(tab==='charts'&&!chartsBuilt&&lastData)buildCharts();if(tab==='memo'&&!memoLoaded)loadMemo()}
 
 async function lookupTicker(){
   const ticker=document.getElementById("ticker").value.trim();if(!ticker)return alert("Enter a ticker.");
-  document.getElementById("error").classList.remove("active");document.getElementById("step2").classList.add("hidden");document.getElementById("results").classList.remove("active");document.getElementById("lookupLoader").classList.add("active");document.getElementById("lookupBtn").disabled=true;chartsBuilt=false;newsLoaded=false;memoLoaded=false;
+  document.getElementById("error").classList.remove("active");document.getElementById("step2").classList.add("hidden");document.getElementById("results").classList.remove("active");document.getElementById("lookupLoader").classList.add("active");document.getElementById("lookupBtn").disabled=true;chartsBuilt=false;memoLoaded=false;
   try{
     const res=await fetch("/api/lookup",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ticker})});if(!res.ok){const err=await res.json();throw new Error(err.detail||"Lookup failed.")}
     const data=await res.json();companyData=data;autoAssumptions=data.auto_assumptions;
@@ -190,7 +190,7 @@ function buildCharts(){
 // News
 async function loadNews(force){
   if(newsLoaded&&!force)return;const ticker=document.getElementById("ticker").value.trim();if(!ticker)return;
-  document.getElementById("newsLoader").classList.add("active");document.getElementById("newsContent").innerHTML="";newsLoaded=false;
+  document.getElementById("newsLoader").classList.add("active");document.getElementById("newsContent").innerHTML="";
   try{const res=await fetch("/api/news",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ticker})});if(!res.ok)throw new Error("Failed");const data=await res.json();
     document.getElementById("newsTimestamp").textContent=fmtTime(data.timestamp);
     if(data.news?.length>0){document.getElementById("newsContent").innerHTML=data.news.map(n=>`<div class="news-item"><div class="news-header"><span class="news-sentiment ${n.sentiment||'neutral'}">${n.sentiment||'neutral'}</span><span class="news-category">${n.category||''}</span></div><div class="news-headline">${n.headline||''}</div><div class="news-summary">${n.summary||''}</div></div>`).join("")}
