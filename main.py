@@ -9,12 +9,10 @@ import httpx
 import json
 import os
 
-# Fix for cloud environments
 yf.set_tz_cache_location("/tmp/yf_cache")
 
 app = FastAPI()
 
-# Claude API key from environment variable
 CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY", "")
 
 # ---------------------------------------------------------------------------
@@ -107,13 +105,30 @@ def fetch_financials(ticker: str) -> dict:
     da_pct = (depreciation / revenue) if revenue > 0 else 0.03
     capex_pct = (capex / revenue) if revenue > 0 else 0.04
 
+    # Determine mature/normalized capex level based on sector
+    sector = info.get("sector", "N/A")
+    industry = info.get("industry", "N/A")
+
+    # Sector-based mature CapEx % (what the company will converge to)
+    sector_mature_capex = {
+        "Technology": 0.06, "Communication Services": 0.07,
+        "Consumer Cyclical": 0.06, "Consumer Defensive": 0.04,
+        "Healthcare": 0.05, "Financial Services": 0.02,
+        "Industrials": 0.05, "Energy": 0.08,
+        "Basic Materials": 0.06, "Real Estate": 0.03,
+        "Utilities": 0.10,
+    }
+    mature_capex_pct = sector_mature_capex.get(sector, 0.06)
+
+    # If current capex is below mature level, don't fade up — keep it
+    if capex_pct <= mature_capex_pct:
+        mature_capex_pct = capex_pct
+
     price = info.get("regularMarketPrice") or info.get("currentPrice", 0)
     shares = info.get("sharesOutstanding", 0) or 0
     cash = info.get("totalCash", 0) or 0
     debt = info.get("totalDebt", 0) or 0
     name = info.get("shortName", ticker.upper())
-    sector = info.get("sector", "N/A")
-    industry = info.get("industry", "N/A")
     market_cap = info.get("marketCap", 0) or 0
     pe = info.get("trailingPE", None)
     ev_ebitda = info.get("enterpriseToEbitda", None)
@@ -127,7 +142,7 @@ def fetch_financials(ticker: str) -> dict:
     if shares == 0:
         raise HTTPException(status_code=400, detail=f"No shares outstanding data for '{ticker}'.")
 
-    # --- Fallback WACC calc (used if AI fails) ---
+    # --- Fallback WACC calc ---
     risk_free_rate = 0.043
     equity_risk_premium = 0.055
     if beta and beta > 0:
@@ -166,12 +181,11 @@ def fetch_financials(ticker: str) -> dict:
         "cash": cash, "debt": debt, "pe_ratio": pe, "ev_ebitda": ev_ebitda, "beta": beta,
         "latest_revenue": revenue, "latest_ebit": ebit,
         "depreciation": depreciation, "capex": capex,
-        "da_pct": da_pct, "capex_pct": capex_pct,
+        "da_pct": da_pct, "capex_pct": capex_pct, "mature_capex_pct": mature_capex_pct,
         "tax_rate": tax_rate, "interest_expense": interest_expense,
         "nwc_pct_of_rev_change": nwc_pct_of_rev_change,
         "hist_revenue": hist_revenue,
         "ebit_margin": (ebit / revenue * 100) if revenue else 0,
-        # Fallback assumptions
         "calc_wacc": round(calc_wacc, 4),
         "calc_revenue_growth": round(avg_revenue_growth, 4),
         "calc_terminal_growth": 0.025,
@@ -188,7 +202,6 @@ def fetch_financials(ticker: str) -> dict:
 # ---------------------------------------------------------------------------
 
 async def get_ai_assumptions(data: dict) -> dict | None:
-    """Ask Claude to recommend DCF assumptions based on company data."""
     if not CLAUDE_API_KEY:
         return None
 
@@ -201,7 +214,7 @@ async def get_ai_assumptions(data: dict) -> dict | None:
     for i in range(1, len(hr)):
         if hr[i-1] > 0:
             gr = (hr[i] - hr[i-1]) / hr[i-1] * 100
-            growth_rates_str += f"  Year {i} → {i+1}: {gr:.1f}%\n"
+            growth_rates_str += f"  Year {i} to {i+1}: {gr:.1f}%\n"
 
     prompt = f"""You are a senior equity research analyst. Based on the financial data below, recommend DCF model assumptions for {data['name']} ({data['ticker']}).
 
@@ -211,12 +224,14 @@ COMPANY DATA:
 - Market Cap: ${data['market_cap']/1e9:.1f}B
 - Current Price: ${data['price']:.2f}
 - Beta: {data['beta'] if data['beta'] else 'N/A'}
-- P/E Ratio: {data['pe_ratio']:.1f}x if data['pe_ratio'] else 'N/A'
-- EV/EBITDA: {data['ev_ebitda']:.1f}x if data['ev_ebitda'] else 'N/A'
+- P/E Ratio: {f"{data['pe_ratio']:.1f}x" if data['pe_ratio'] else 'N/A'}
+- EV/EBITDA: {f"{data['ev_ebitda']:.1f}x" if data['ev_ebitda'] else 'N/A'}
 
 FINANCIALS:
 - Latest Revenue: ${data['latest_revenue']/1e9:.1f}B
 - EBIT Margin: {data['ebit_margin']:.1f}%
+- Current CapEx as % of Revenue: {data['capex_pct']*100:.1f}%
+- Current D&A as % of Revenue: {data['da_pct']*100:.1f}%
 - Historical Revenue:
 {hist_rev_str}
 - Revenue Growth Rates:
@@ -228,6 +243,11 @@ FINANCIALS:
 - Cost of Debt: {data['cost_of_debt']*100:.1f}%
 - Equity Weight: {data['weight_equity']*100:.1f}%
 - Debt Weight: {data['weight_debt']*100:.1f}%
+
+IMPORTANT CONTEXT:
+- The DCF model uses CapEx fade: CapEx starts at the current level ({data['capex_pct']*100:.1f}%) and linearly fades to a mature level ({data['mature_capex_pct']*100:.1f}%) by the end of the projection period.
+- This means companies with temporarily elevated CapEx (like heavy investors in AI/cloud/logistics) will see improving free cash flow over time, which is realistic.
+- Factor this into your assumptions — you do NOT need to compensate for high CapEx with unrealistic growth rates.
 
 RESPOND WITH ONLY THIS JSON FORMAT (no markdown, no backticks, no extra text):
 {{
@@ -242,12 +262,12 @@ RESPOND WITH ONLY THIS JSON FORMAT (no markdown, no backticks, no extra text):
   "overall_analysis": "<2-3 sentences with key takeaways about this company's valuation>"
 }}
 
-Important rules:
-- WACC should typically be between 6% and 15%
-- Revenue growth should reflect a realistic forward-looking estimate, not just historical average
-- Terminal growth should be between 1.5% and 3.5%
-- Consider the company's competitive position, industry trends, and growth trajectory
-- Be specific to THIS company, not generic"""
+Rules:
+- WACC: typically 6-15%, based on CAPM and capital structure
+- Revenue growth: realistic forward-looking estimate, consider industry position and scale
+- Terminal growth: 1.5-3.5%, anchored to long-term GDP
+- Projection years: 5-15, longer for high-growth companies
+- Be specific to THIS company"""
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -271,11 +291,9 @@ Important rules:
 
         result = response.json()
         text = result["content"][0]["text"].strip()
-        # Clean potential markdown formatting
         text = text.replace("```json", "").replace("```", "").strip()
         parsed = json.loads(text)
 
-        # Validate ranges
         wacc = max(5.0, min(float(parsed["wacc"]), 20.0))
         rev_growth = max(-10.0, min(float(parsed["revenue_growth"]), 35.0))
         term_growth = max(1.0, min(float(parsed["terminal_growth"]), 4.0))
@@ -298,14 +316,15 @@ Important rules:
         return None
 
 # ---------------------------------------------------------------------------
-# DCF calculation
+# DCF calculation with CapEx fade
 # ---------------------------------------------------------------------------
 
 def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: float, years: int) -> dict:
     revenue = data["latest_revenue"]
     ebit = data["latest_ebit"]
-    da_pct = data["da_pct"]
-    capex_pct = data["capex_pct"]
+    da_pct_start = data["da_pct"]
+    capex_pct_start = data["capex_pct"]
+    mature_capex_pct = data["mature_capex_pct"]
     tax_rate = data["tax_rate"]
     nwc_pct = data["nwc_pct_of_rev_change"]
     shares = data["shares_outstanding"]
@@ -317,6 +336,12 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
 
     ebit_margin = ebit / revenue if revenue else 0
 
+    # D&A also fades: as capex normalizes, D&A converges to ~capex level
+    # Mature D&A = mature CapEx (steady state: D&A ≈ CapEx)
+    mature_da_pct = mature_capex_pct
+    if da_pct_start < mature_da_pct:
+        mature_da_pct = da_pct_start  # don't fade up
+
     projections = []
     prev_revenue = revenue
 
@@ -324,10 +349,18 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
         proj_revenue = revenue * ((1 + revenue_growth) ** yr)
         proj_ebit = proj_revenue * ebit_margin
         nopat = proj_ebit * (1 - tax_rate)
-        proj_da = proj_revenue * da_pct
-        proj_capex = proj_revenue * capex_pct
+
+        # CapEx fade: linear interpolation from current to mature
+        fade_progress = (yr - 1) / max(years - 1, 1)  # 0 at year 1, 1 at final year
+        capex_pct_yr = capex_pct_start + (mature_capex_pct - capex_pct_start) * fade_progress
+        da_pct_yr = da_pct_start + (mature_da_pct - da_pct_start) * fade_progress
+
+        proj_da = proj_revenue * da_pct_yr
+        proj_capex = proj_revenue * capex_pct_yr
+
         rev_increase = proj_revenue - prev_revenue
         proj_nwc_change = rev_increase * nwc_pct
+
         ufcf = nopat + proj_da - proj_capex - proj_nwc_change
         discount_factor = 1 / ((1 + wacc) ** yr)
         pv = ufcf * discount_factor
@@ -337,6 +370,7 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
             "nopat": round(nopat), "da": round(proj_da), "capex": round(proj_capex),
             "nwc_change": round(proj_nwc_change), "ufcf": round(ufcf),
             "discount_factor": round(discount_factor, 4), "pv_ufcf": round(pv),
+            "capex_pct": round(capex_pct_yr * 100, 1),
         })
         prev_revenue = proj_revenue
 
@@ -388,8 +422,8 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
         "implied_share_price": round(implied_share_price, 2), "current_price": current_price,
         "upside_pct": round(upside, 2), "recommendation": recommendation,
         "ebit_margin": round(ebit_margin * 100, 2), "tax_rate_used": round(tax_rate * 100, 2),
-        "da_pct_used": round(da_pct * 100, 2), "capex_pct_used": round(capex_pct * 100, 2),
-        "nwc_pct_used": round(nwc_pct * 100, 2),
+        "capex_pct_start": round(capex_pct_start * 100, 2),
+        "capex_pct_mature": round(mature_capex_pct * 100, 2),
         "sensitivity": sensitivity, "sensitivity_tg_range": tg_range,
     }
 
@@ -405,8 +439,6 @@ async def lookup_endpoint(req: TickerLookup):
             raise HTTPException(status_code=400, detail="Ticker is required.")
 
         data = fetch_financials(ticker)
-
-        # Try AI assumptions first, fall back to calculated
         ai_result = await get_ai_assumptions(data)
 
         if ai_result:
@@ -432,11 +464,11 @@ async def lookup_endpoint(req: TickerLookup):
                 "projection_years": 10,
             }
             ai_reasoning = {
-                "wacc": "Calculated using CAPM (risk-free rate + beta × equity risk premium) weighted by capital structure.",
+                "wacc": "Calculated using CAPM weighted by capital structure.",
                 "revenue_growth": "Based on average historical revenue growth rate.",
                 "terminal_growth": "Standard long-term GDP growth assumption of 2.5%.",
                 "projection_years": "Standard 10-year projection period.",
-                "overall": "AI analysis unavailable. Using formula-based assumptions from historical data.",
+                "overall": "AI analysis unavailable. Using formula-based assumptions.",
                 "powered_by_ai": False,
             }
 
@@ -464,7 +496,8 @@ async def lookup_endpoint(req: TickerLookup):
             "model_inputs": {
                 "ebit_margin": round(data["ebit_margin"], 2),
                 "da_pct": round(data["da_pct"] * 100, 2),
-                "capex_pct": round(data["capex_pct"] * 100, 2),
+                "capex_pct_current": round(data["capex_pct"] * 100, 2),
+                "capex_pct_mature": round(data["mature_capex_pct"] * 100, 2),
                 "nwc_pct": round(data["nwc_pct_of_rev_change"] * 100, 2),
             },
         }
@@ -507,10 +540,6 @@ def dcf_endpoint(req: DCFRequest):
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
-
-# ---------------------------------------------------------------------------
-# Serve frontend
-# ---------------------------------------------------------------------------
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
