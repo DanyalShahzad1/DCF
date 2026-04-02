@@ -152,11 +152,11 @@ def fetch_financials(ticker: str) -> dict:
 # ---------------------------------------------------------------------------
 # Claude multi-turn helper
 # ---------------------------------------------------------------------------
-async def claude_with_search(prompt: str, max_tokens: int = 1000, max_turns: int = 5) -> str | None:
+async def claude_with_search(prompt: str, max_tokens: int = 1000, max_turns: int = 8) -> str | None:
     if not CLAUDE_API_KEY: return None
     messages = [{"role": "user", "content": prompt}]
     try:
-        async with httpx.AsyncClient(timeout=90.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             for turn in range(max_turns):
                 resp = await client.post("https://api.anthropic.com/v1/messages",
                     headers={"Content-Type":"application/json","x-api-key":CLAUDE_API_KEY,"anthropic-version":"2023-06-01"},
@@ -164,20 +164,53 @@ async def claude_with_search(prompt: str, max_tokens: int = 1000, max_turns: int
                           "tools":[{"type":"web_search_20250305","name":"web_search"}],
                           "messages":messages})
                 if resp.status_code != 200:
-                    print(f"Claude error turn {turn}: {resp.status_code} {resp.text}"); return None
-                result = resp.json(); stop = result.get("stop_reason","")
+                    print(f"Claude error turn {turn}: {resp.status_code} {resp.text}")
+                    return None
+                result = resp.json()
+                stop = result.get("stop_reason","")
+                content_blocks = result.get("content", [])
+                print(f"Turn {turn}: stop={stop}, blocks={[b.get('type') for b in content_blocks]}")
+
+                # Collect any text from this response
+                text = "".join(b.get("text","") for b in content_blocks if b.get("type")=="text").strip()
+
                 if stop == "end_turn":
-                    return "".join(b.get("text","") for b in result.get("content",[]) if b.get("type")=="text").strip()
+                    return text if text else None
+
+                # Handle tool use - need to continue conversation
                 if stop == "tool_use":
-                    messages.append({"role":"assistant","content":result["content"]})
-                    tr = [{"type":"server_tool_result","tool_use_id":b["id"]} for b in result.get("content",[]) if b.get("type")=="server_tool_use"]
-                    if tr: messages.append({"role":"user","content":tr})
+                    messages.append({"role":"assistant","content":content_blocks})
+                    tool_results = []
+                    for b in content_blocks:
+                        if b.get("type") == "server_tool_use":
+                            tool_results.append({"type":"server_tool_result","tool_use_id":b["id"]})
+                        elif b.get("type") == "tool_use":
+                            tool_results.append({"type":"tool_result","tool_use_id":b["id"],"content":"OK"})
+                    if tool_results:
+                        messages.append({"role":"user","content":tool_results})
                     continue
-                text = "".join(b.get("text","") for b in result.get("content",[]) if b.get("type")=="text").strip()
-                return text if text else None
+
+                # Unknown stop reason but has text
+                if text: return text
         return None
     except Exception as e:
         print(f"Claude error: {traceback.format_exc()}"); return None
+
+async def claude_no_search(prompt: str, max_tokens: int = 1000) -> str | None:
+    """Fallback: call Claude without web search."""
+    if not CLAUDE_API_KEY: return None
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post("https://api.anthropic.com/v1/messages",
+                headers={"Content-Type":"application/json","x-api-key":CLAUDE_API_KEY,"anthropic-version":"2023-06-01"},
+                json={"model":"claude-sonnet-4-20250514","max_tokens":max_tokens,
+                      "messages":[{"role":"user","content":prompt}]})
+            if resp.status_code != 200:
+                print(f"Claude no-search error: {resp.status_code}"); return None
+            result = resp.json()
+            return "".join(b.get("text","") for b in result.get("content",[]) if b.get("type")=="text").strip()
+    except Exception as e:
+        print(f"Claude no-search error: {traceback.format_exc()}"); return None
 
 def extract_json_obj(text):
     s = text.find("{"); e = text.rfind("}") + 1
@@ -231,19 +264,35 @@ Return ONLY the JSON array."""
     except: return None
 
 async def get_ai_memo(ticker, name, data) -> dict | None:
-    prompt = f"""You are a senior equity research analyst. Search the web for the latest information about {name} ({ticker}), then write a brief investment memo.
+    prompt = f"""You are a senior equity research analyst writing an investment memo for {name} ({ticker}).
 
-Company: {name} ({ticker}), Sector: {data['sector']}, MCap: ${data['market_cap']/1e9:.1f}B
-Revenue: ${data['latest_revenue']/1e9:.1f}B, EBIT Margin: {data['ebit_margin']:.1f}%, P/E: {f"{data['pe_ratio']:.1f}x" if data['pe_ratio'] else 'N/A'}
+Company: {name} ({ticker}), Sector: {data['sector']}, Industry: {data['industry']}
+Market Cap: ${data['market_cap']/1e9:.1f}B, Price: ${data['price']:.2f}
+Revenue: ${data['latest_revenue']/1e9:.1f}B, EBIT Margin: {data['ebit_margin']:.1f}%
+P/E: {f"{data['pe_ratio']:.1f}x" if data['pe_ratio'] else 'N/A'}, Beta: {data['beta'] or 'N/A'}
+Cash: ${data['cash']/1e9:.1f}B, Debt: ${data['debt']/1e9:.1f}B
 
-RESPOND ONLY JSON (no markdown):
-{{"thesis":"<3-4 sentence investment thesis>","bull_case":"<2-3 sentences>","bear_case":"<2-3 sentences>","catalysts":["<catalyst 1>","<catalyst 2>","<catalyst 3>"],"risks":["<risk 1>","<risk 2>","<risk 3>"],"key_metrics_to_watch":["<metric 1>","<metric 2>","<metric 3>"]}}"""
-    text = await claude_with_search(prompt, 1500)
+Search the web for recent news and developments, then write the memo.
+
+RESPOND WITH ONLY THIS JSON (no markdown, no backticks, no extra text):
+{{"thesis":"<3-4 sentence investment thesis>","bull_case":"<2-3 sentences on upside scenario>","bear_case":"<2-3 sentences on downside scenario>","catalysts":["<specific catalyst 1>","<specific catalyst 2>","<specific catalyst 3>"],"risks":["<specific risk 1>","<specific risk 2>","<specific risk 3>"],"key_metrics_to_watch":["<metric 1>","<metric 2>","<metric 3>"]}}"""
+
+    # Try with web search first
+    text = await claude_with_search(prompt, 2000)
+    if not text:
+        # Fallback: try without web search
+        print(f"Memo web search failed for {ticker}, trying without search")
+        text = await claude_no_search(prompt, 1500)
     if not text: return None
     try:
         text = text.replace("```json","").replace("```","").strip()
-        return extract_json_obj(text)
-    except: return None
+        result = extract_json_obj(text)
+        if result and "thesis" in result:
+            return result
+        return None
+    except Exception as e:
+        print(f"Memo parse error: {e}, text was: {text[:200]}")
+        return None
 
 # ---------------------------------------------------------------------------
 # DCF
@@ -403,16 +452,7 @@ def dcf_endpoint(req: DCFRequest):
         print(f"ERROR dcf: {traceback.format_exc()}")
         return JSONResponse(status_code=500, content={"detail":str(e)})
 
-@app.post("/api/news")
-async def news_endpoint(req: NewsRequest):
-    try:
-        ticker=req.ticker.strip().upper()
-        stock=yf.Ticker(ticker,session=None); name=stock.info.get("shortName",ticker) if stock.info else ticker
-        news=await get_ai_news(ticker,name)
-        return {"ticker":ticker,"company":name,"news":news or [],"timestamp":datetime.now(timezone.utc).isoformat()}
-    except Exception as e:
-        print(f"ERROR news: {traceback.format_exc()}")
-        return JSONResponse(status_code=500, content={"detail":str(e)})
+
 
 @app.post("/api/memo")
 async def memo_endpoint(req: MemoRequest):
