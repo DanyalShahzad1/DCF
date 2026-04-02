@@ -21,8 +21,6 @@
 html{font-size:14px}
 body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overflow-x:hidden}
 a{color:var(--accent);text-decoration:none}
-
-/* Layout */
 .container{max-width:1200px;margin:0 auto;padding:1rem}
 
 /* Header */
@@ -32,20 +30,35 @@ header .container{display:flex;align-items:center;justify-content:space-between;
 .logo span{color:var(--accent)}
 .tagline{color:var(--text-dim);font-size:.8rem;font-family:var(--mono)}
 
-/* Input Panel */
-.input-panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.8rem;margin-bottom:2rem}
-.input-panel h2{font-family:var(--mono);font-size:1rem;color:var(--accent);margin-bottom:1.2rem;letter-spacing:.04em;text-transform:uppercase;font-weight:600}
-.input-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:1rem;align-items:end}
-@media(max-width:768px){.input-row{grid-template-columns:1fr 1fr;}}
+/* Panels */
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.8rem;margin-bottom:1.5rem}
+.panel h2{font-family:var(--mono);font-size:1rem;color:var(--accent);margin-bottom:1.2rem;letter-spacing:.04em;text-transform:uppercase;font-weight:600}
+
+/* Input rows */
+.input-row{display:grid;grid-template-columns:1fr auto;gap:1rem;align-items:end}
+.input-row-4{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:1rem;align-items:end}
+@media(max-width:768px){.input-row-4{grid-template-columns:1fr 1fr;}}
 .field label{display:block;color:var(--text-dim);font-size:.75rem;font-family:var(--mono);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem}
 .field input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.65rem .8rem;color:var(--text);font-family:var(--mono);font-size:.95rem;transition:border-color .2s}
 .field input:focus{outline:none;border-color:var(--accent)}
+.field input.user-modified{border-color:var(--amber);background:rgba(245,158,11,.05)}
 .btn{background:var(--accent);color:var(--bg);border:none;border-radius:8px;padding:.65rem 1.8rem;font-family:var(--mono);font-size:.9rem;font-weight:700;cursor:pointer;letter-spacing:.02em;transition:all .2s;white-space:nowrap}
 .btn:hover{filter:brightness(1.15);transform:translateY(-1px)}
 .btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.btn-secondary{background:var(--surface3);color:var(--text)}
+
+/* WACC Breakdown */
+.wacc-breakdown{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.8rem;margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border)}
+.wb-item{font-family:var(--mono);font-size:.75rem}
+.wb-item .wb-label{color:var(--text-muted);font-size:.65rem;text-transform:uppercase;letter-spacing:.06em}
+.wb-item .wb-val{color:var(--text-dim);margin-top:.15rem}
+
+/* Auto-calc badge */
+.auto-badge{display:inline-block;font-family:var(--mono);font-size:.6rem;background:var(--accent-dim);color:var(--accent);padding:.15rem .4rem;border-radius:4px;text-transform:uppercase;letter-spacing:.06em;margin-left:.4rem;vertical-align:middle}
+.override-hint{font-family:var(--mono);font-size:.7rem;color:var(--text-muted);margin-top:.8rem}
 
 /* Loading */
-.loader{display:none;text-align:center;padding:4rem 0}
+.loader{display:none;text-align:center;padding:3rem 0}
 .loader.active{display:block}
 .spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 1rem}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -54,6 +67,9 @@ header .container{display:flex;align-items:center;justify-content:space-between;
 /* Error */
 .error{background:var(--red-bg);border:1px solid var(--red);border-radius:10px;padding:1rem 1.2rem;color:var(--red);font-family:var(--mono);font-size:.85rem;margin-bottom:1.5rem;display:none}
 .error.active{display:block}
+
+/* Hidden sections */
+.hidden{display:none}
 
 /* Results */
 #results{display:none}
@@ -99,15 +115,14 @@ tr:hover td{background:rgba(34,211,238,.03)}
 /* Footer */
 footer{text-align:center;padding:2rem 0;color:var(--text-muted);font-family:var(--mono);font-size:.7rem;border-top:1px solid var(--border);margin-top:2rem}
 
-/* Responsive */
 @media(max-width:600px){
   .input-row{grid-template-columns:1fr}
+  .input-row-4{grid-template-columns:1fr}
   .rec-prices{gap:1.5rem}
   .stat-grid{grid-template-columns:1fr 1fr}
   table{font-size:.7rem}
 }
 
-/* Excel button */
 .btn-excel{background:var(--green);margin-top:1rem}
 </style>
 </head>
@@ -124,45 +139,64 @@ footer{text-align:center;padding:2rem 0;color:var(--text-muted);font-family:var(
 
 <main class="container">
 
-  <!-- Input Panel -->
-  <div class="input-panel">
-    <h2>Model Inputs</h2>
+  <!-- STEP 1: Ticker Input -->
+  <div class="panel" id="step1">
+    <h2>Step 1 — Select Company</h2>
     <div class="input-row">
       <div class="field">
-        <label>Ticker</label>
-        <input type="text" id="ticker" placeholder="AAPL" value="AAPL">
-      </div>
-      <div class="field">
-        <label>WACC (%)</label>
-        <input type="number" id="wacc" placeholder="10" value="10" step="0.5" min="1" max="30">
-      </div>
-      <div class="field">
-        <label>Revenue Growth (%)</label>
-        <input type="number" id="growth" placeholder="5" value="5" step="0.5" min="-20" max="50">
-      </div>
-      <div class="field">
-        <label>Terminal Growth (%)</label>
-        <input type="number" id="tgrowth" placeholder="2.5" value="2.5" step="0.25" min="0" max="5">
+        <label>Ticker Symbol</label>
+        <input type="text" id="ticker" placeholder="AAPL, MSFT, WMT..." value="">
       </div>
       <div>
-        <button class="btn" id="runBtn" onclick="runDCF()">Run DCF</button>
+        <button class="btn" id="lookupBtn" onclick="lookupTicker()">Look Up</button>
       </div>
     </div>
   </div>
 
-  <!-- Loading -->
-  <div class="loader" id="loader">
+  <!-- Loading for lookup -->
+  <div class="loader" id="lookupLoader">
     <div class="spinner"></div>
-    <p>Fetching financials & running model...</p>
+    <p>Fetching company data & calculating assumptions...</p>
   </div>
 
   <!-- Error -->
   <div class="error" id="error"></div>
 
+  <!-- STEP 2: Assumptions (hidden until lookup) -->
+  <div class="panel hidden" id="step2">
+    <h2>Step 2 — Model Assumptions <span class="auto-badge">Auto-Calculated</span></h2>
+    <p class="override-hint">Values below are auto-calculated from company data. Edit any field to override.</p>
+    <div class="input-row-4" style="margin-top:1rem">
+      <div class="field">
+        <label>WACC (%)</label>
+        <input type="number" id="wacc" step="0.1" min="1" max="30">
+      </div>
+      <div class="field">
+        <label>Revenue Growth (%)</label>
+        <input type="number" id="growth" step="0.5" min="-20" max="50">
+      </div>
+      <div class="field">
+        <label>Terminal Growth (%)</label>
+        <input type="number" id="tgrowth" step="0.25" min="0" max="5">
+      </div>
+      <div style="display:flex;gap:.5rem;align-items:end">
+        <button class="btn" id="runBtn" onclick="runDCF()">Run DCF</button>
+        <button class="btn btn-secondary" onclick="resetAssumptions()" title="Reset to auto-calculated">Reset</button>
+      </div>
+    </div>
+
+    <!-- WACC Breakdown -->
+    <div class="wacc-breakdown" id="waccBreakdown"></div>
+  </div>
+
+  <!-- Loading for DCF -->
+  <div class="loader" id="dcfLoader">
+    <div class="spinner"></div>
+    <p>Running DCF model...</p>
+  </div>
+
   <!-- Results -->
   <div id="results">
-
-    <!-- Recommendation Banner -->
     <div class="rec-banner" id="recBanner">
       <div class="rec-label" id="recLabel"></div>
       <div class="rec-sub" id="recSub"></div>
@@ -182,40 +216,29 @@ footer{text-align:center;padding:2rem 0;color:var(--text-muted);font-family:var(
       </div>
     </div>
 
-    <!-- Company Overview -->
     <div class="stat-grid" id="statGrid"></div>
 
-    <!-- DCF Projections -->
     <div class="section">
       <h3>Projected Unlevered Free Cash Flows</h3>
-      <div style="overflow-x:auto">
-        <table id="projTable"></table>
-      </div>
+      <div style="overflow-x:auto"><table id="projTable"></table></div>
     </div>
 
-    <!-- Valuation Summary -->
     <div class="section">
       <h3>Valuation Summary</h3>
-      <div style="overflow-x:auto">
-        <table id="valTable"></table>
-      </div>
+      <div style="overflow-x:auto"><table id="valTable"></table></div>
     </div>
 
-    <!-- Sensitivity -->
     <div class="section">
       <h3>Sensitivity Analysis — Implied Share Price</h3>
       <div class="sens-header">WACC (rows) vs Terminal Growth (columns)</div>
-      <div style="overflow-x:auto">
-        <table class="sens-table" id="sensTable"></table>
-      </div>
+      <div style="overflow-x:auto"><table class="sens-table" id="sensTable"></table></div>
     </div>
 
-    <!-- Export -->
     <div style="text-align:center">
       <button class="btn btn-excel" onclick="exportExcel()">Download Excel Model</button>
     </div>
-
   </div>
+
 </main>
 
 <footer>
@@ -224,13 +247,9 @@ footer{text-align:center;padding:2rem 0;color:var(--text-muted);font-family:var(
   </div>
 </footer>
 
-<!-- SheetJS for Excel export -->
 <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
 
 <script>
-// ──────────────────────────────────────────────
-// Formatting helpers
-// ──────────────────────────────────────────────
 const fmt = (n) => {
   if (n == null || isNaN(n)) return "—";
   if (Math.abs(n) >= 1e12) return "$" + (n/1e12).toFixed(2) + "T";
@@ -241,10 +260,86 @@ const fmt = (n) => {
 const pct = (n) => n != null ? n.toFixed(2) + "%" : "—";
 const dollar = (n) => n != null ? "$" + n.toFixed(2) : "—";
 
-let lastData = null; // store for excel export
+let lastData = null;
+let autoAssumptions = null;
+
+// Highlight fields the user has manually edited
+document.querySelectorAll('#step2 input').forEach(inp => {
+  inp.addEventListener('input', () => inp.classList.add('user-modified'));
+});
 
 // ──────────────────────────────────────────────
-// Run DCF
+// Step 1: Lookup ticker → auto-fill assumptions
+// ──────────────────────────────────────────────
+async function lookupTicker() {
+  const ticker = document.getElementById("ticker").value.trim();
+  if (!ticker) return alert("Enter a ticker.");
+
+  document.getElementById("error").classList.remove("active");
+  document.getElementById("step2").classList.add("hidden");
+  document.getElementById("results").classList.remove("active");
+  document.getElementById("lookupLoader").classList.add("active");
+  document.getElementById("lookupBtn").disabled = true;
+
+  try {
+    const res = await fetch("/api/lookup", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ ticker })
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "Lookup failed.");
+    }
+
+    const data = await res.json();
+    autoAssumptions = data.auto_assumptions;
+
+    // Fill assumption fields
+    document.getElementById("wacc").value = data.auto_assumptions.wacc;
+    document.getElementById("growth").value = data.auto_assumptions.revenue_growth;
+    document.getElementById("tgrowth").value = data.auto_assumptions.terminal_growth;
+
+    // Clear user-modified highlights
+    document.querySelectorAll('#step2 input').forEach(inp => inp.classList.remove('user-modified'));
+
+    // Show WACC breakdown
+    const wb = data.wacc_breakdown;
+    document.getElementById("waccBreakdown").innerHTML = `
+      <div class="wb-item"><div class="wb-label">Risk-Free Rate</div><div class="wb-val">${wb.risk_free_rate}%</div></div>
+      <div class="wb-item"><div class="wb-label">Equity Risk Premium</div><div class="wb-val">${wb.equity_risk_premium}%</div></div>
+      <div class="wb-item"><div class="wb-label">Beta</div><div class="wb-val">${wb.beta != null ? wb.beta.toFixed(2) : "1.00 (assumed)"}</div></div>
+      <div class="wb-item"><div class="wb-label">Cost of Equity</div><div class="wb-val">${wb.cost_of_equity}%</div></div>
+      <div class="wb-item"><div class="wb-label">Cost of Debt</div><div class="wb-val">${wb.cost_of_debt}%</div></div>
+      <div class="wb-item"><div class="wb-label">Equity Weight</div><div class="wb-val">${wb.weight_equity}%</div></div>
+      <div class="wb-item"><div class="wb-label">Debt Weight</div><div class="wb-val">${wb.weight_debt}%</div></div>
+      <div class="wb-item"><div class="wb-label">Eff. Tax Rate</div><div class="wb-val">${wb.tax_rate}%</div></div>
+    `;
+
+    // Show step 2
+    document.getElementById("step2").classList.remove("hidden");
+    document.getElementById("step2").scrollIntoView({behavior:"smooth", block:"start"});
+
+  } catch (e) {
+    document.getElementById("error").textContent = e.message;
+    document.getElementById("error").classList.add("active");
+  } finally {
+    document.getElementById("lookupLoader").classList.remove("active");
+    document.getElementById("lookupBtn").disabled = false;
+  }
+}
+
+function resetAssumptions() {
+  if (!autoAssumptions) return;
+  document.getElementById("wacc").value = autoAssumptions.wacc;
+  document.getElementById("growth").value = autoAssumptions.revenue_growth;
+  document.getElementById("tgrowth").value = autoAssumptions.terminal_growth;
+  document.querySelectorAll('#step2 input').forEach(inp => inp.classList.remove('user-modified'));
+}
+
+// ──────────────────────────────────────────────
+// Step 2: Run DCF
 // ──────────────────────────────────────────────
 async function runDCF() {
   const ticker = document.getElementById("ticker").value.trim();
@@ -258,7 +353,7 @@ async function runDCF() {
 
   document.getElementById("results").classList.remove("active");
   document.getElementById("error").classList.remove("active");
-  document.getElementById("loader").classList.add("active");
+  document.getElementById("dcfLoader").classList.add("active");
   document.getElementById("runBtn").disabled = true;
 
   try {
@@ -283,19 +378,18 @@ async function runDCF() {
     document.getElementById("error").textContent = e.message;
     document.getElementById("error").classList.add("active");
   } finally {
-    document.getElementById("loader").classList.remove("active");
+    document.getElementById("dcfLoader").classList.remove("active");
     document.getElementById("runBtn").disabled = false;
   }
 }
 
 // ──────────────────────────────────────────────
-// Render
+// Render results
 // ──────────────────────────────────────────────
 function renderResults(data) {
   const c = data.company;
   const v = data.valuation;
 
-  // Recommendation
   const banner = document.getElementById("recBanner");
   banner.className = "rec-banner " + v.recommendation;
   document.getElementById("recLabel").textContent = v.recommendation;
@@ -307,22 +401,20 @@ function renderResults(data) {
   upEl.textContent = (up >= 0 ? "+" : "") + up.toFixed(1) + "%";
   upEl.style.color = up > 0 ? "var(--green)" : up < 0 ? "var(--red)" : "var(--amber)";
 
-  // Stat cards
   const stats = [
     {label: "Sector", value: c.sector},
     {label: "Market Cap", value: fmt(c.market_cap)},
+    {label: "Beta", value: c.beta ? c.beta.toFixed(2) : "—"},
     {label: "P/E Ratio", value: c.pe_ratio ? c.pe_ratio.toFixed(1) + "x" : "—"},
     {label: "EV/EBITDA", value: c.ev_ebitda ? c.ev_ebitda.toFixed(1) + "x" : "—"},
     {label: "Enterprise Value", value: fmt(v.enterprise_value)},
     {label: "Equity Value", value: fmt(v.equity_value)},
     {label: "EBIT Margin", value: pct(v.ebit_margin)},
-    {label: "Eff. Tax Rate", value: pct(v.tax_rate_used)},
   ];
   document.getElementById("statGrid").innerHTML = stats.map(s =>
     `<div class="stat-card"><div class="label">${s.label}</div><div class="value">${s.value}</div></div>`
   ).join("");
 
-  // Projections table
   const p = v.projections;
   let projHTML = `<thead><tr><th>Year</th><th>Revenue</th><th>EBIT</th><th>NOPAT</th><th>D&A</th><th>CapEx</th><th>ΔNWC</th><th>UFCF</th><th>Disc. Factor</th><th>PV of UFCF</th></tr></thead><tbody>`;
   p.forEach(r => {
@@ -335,7 +427,6 @@ function renderResults(data) {
   projHTML += "</tbody>";
   document.getElementById("projTable").innerHTML = projHTML;
 
-  // Valuation table
   let valHTML = "<tbody>";
   const valRows = [
     ["Sum of PV (UFCF)", fmt(v.sum_pv_ufcf)],
@@ -356,7 +447,6 @@ function renderResults(data) {
   valHTML += "</tbody>";
   document.getElementById("valTable").innerHTML = valHTML;
 
-  // Sensitivity table
   const sens = v.sensitivity;
   const tgRange = v.sensitivity_tg_range;
   const userWacc = data.assumptions.wacc;
@@ -391,58 +481,41 @@ function exportExcel() {
   const a = lastData.assumptions;
   const wb = XLSX.utils.book_new();
 
-  // Sheet 1: Summary
   const summaryData = [
-    ["DCF Valuation Summary"],
-    [],
-    ["Company", c.name],
-    ["Ticker", c.ticker],
-    ["Sector", c.sector],
-    ["Current Price", v.current_price],
-    ["Implied Share Price", v.implied_share_price],
-    ["Upside/Downside", v.upside_pct / 100],
-    ["Recommendation", v.recommendation],
-    [],
-    ["Assumptions"],
-    ["WACC", a.wacc],
-    ["Revenue Growth", a.revenue_growth],
-    ["Terminal Growth", a.terminal_growth],
-    ["Projection Years", a.projection_years],
-    [],
-    ["Valuation"],
-    ["Enterprise Value", v.enterprise_value],
-    ["+ Cash", c.cash],
-    ["- Debt", c.debt],
-    ["Equity Value", v.equity_value],
-    ["Shares Outstanding", c.shares_outstanding],
-    ["Implied Share Price", v.implied_share_price],
+    ["DCF Valuation Summary"], [],
+    ["Company", c.name], ["Ticker", c.ticker], ["Sector", c.sector],
+    ["Current Price", v.current_price], ["Implied Share Price", v.implied_share_price],
+    ["Upside/Downside", v.upside_pct / 100], ["Recommendation", v.recommendation],
+    [], ["Assumptions"],
+    ["WACC", a.wacc], ["Revenue Growth", a.revenue_growth],
+    ["Terminal Growth", a.terminal_growth], ["Projection Years", a.projection_years],
+    [], ["Valuation"],
+    ["Enterprise Value", v.enterprise_value], ["+ Cash", c.cash],
+    ["- Debt", c.debt], ["Equity Value", v.equity_value],
+    ["Shares Outstanding", c.shares_outstanding], ["Implied Share Price", v.implied_share_price],
   ];
-  const ws1 = XLSX.utils.aoa_to_sheet(summaryData);
-  XLSX.utils.book_append_sheet(wb, ws1, "Summary");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryData), "Summary");
 
-  // Sheet 2: Projections
-  const projHeaders = ["Year", "Revenue", "EBIT", "NOPAT", "D&A", "CapEx", "NWC Change", "UFCF", "Discount Factor", "PV of UFCF"];
+  const projHeaders = ["Year","Revenue","EBIT","NOPAT","D&A","CapEx","NWC Change","UFCF","Discount Factor","PV of UFCF"];
   const projRows = v.projections.map(r => [
-    "Year " + r.year, r.revenue, r.ebit, r.nopat, r.da, r.capex, r.nwc_change, r.ufcf, r.discount_factor, r.pv_ufcf
+    "Year "+r.year, r.revenue, r.ebit, r.nopat, r.da, r.capex, r.nwc_change, r.ufcf, r.discount_factor, r.pv_ufcf
   ]);
-  const ws2 = XLSX.utils.aoa_to_sheet([projHeaders, ...projRows]);
-  XLSX.utils.book_append_sheet(wb, ws2, "DCF Model");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([projHeaders,...projRows]), "DCF Model");
 
-  // Sheet 3: Sensitivity
   const tgRange = v.sensitivity_tg_range;
-  const sensHeaders = ["WACC \\ TG", ...tgRange.map(t => (t*100).toFixed(1) + "%")];
+  const sensHeaders = ["WACC \\ TG", ...tgRange.map(t => (t*100).toFixed(1)+"%")];
   const sensRows = v.sensitivity.map(row => [
-    (row.wacc*100).toFixed(1) + "%", ...row.values.map(v => v != null ? v : "")
+    (row.wacc*100).toFixed(1)+"%", ...row.values.map(v => v != null ? v : "")
   ]);
-  const ws3 = XLSX.utils.aoa_to_sheet([sensHeaders, ...sensRows]);
-  XLSX.utils.book_append_sheet(wb, ws3, "Sensitivity");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([sensHeaders,...sensRows]), "Sensitivity");
 
   XLSX.writeFile(wb, `DCF_${c.ticker}.xlsx`);
 }
 
-// Run on Enter key
-document.querySelectorAll('.field input').forEach(input => {
-  input.addEventListener('keydown', e => { if (e.key === 'Enter') runDCF(); });
+// Enter key handlers
+document.getElementById("ticker").addEventListener("keydown", e => { if (e.key === "Enter") lookupTicker(); });
+document.querySelectorAll('#step2 input').forEach(input => {
+  input.addEventListener("keydown", e => { if (e.key === "Enter") runDCF(); });
 });
 </script>
 </body>
