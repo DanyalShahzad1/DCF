@@ -106,7 +106,7 @@ footer{text-align:center;padding:2rem 0;color:var(--text-muted);font-family:var(
       <div class="rec-prices"><div class="rec-price-item"><div class="label">Market Price</div><div class="val" id="mktPrice"></div></div><div class="rec-price-item"><div class="label">Implied Value</div><div class="val" id="impliedPrice" style="color:var(--accent)"></div></div><div class="rec-price-item"><div class="label">Upside / Downside</div><div class="val" id="upside"></div></div></div>
       <div class="timestamp" id="modelTimestamp"></div>
     </div>
-    <div class="tabs"><div class="tab active" data-tab="dcf" onclick="switchTab('dcf',this)">DCF Model</div><div class="tab" data-tab="memo" onclick="switchTab('memo',this)">Investment Memo</div><div class="tab" data-tab="charts" onclick="switchTab('charts',this)">Charts</div></div>
+    <div class="tabs"><div class="tab active" data-tab="dcf" onclick="switchTab('dcf',this)">DCF Model</div><div class="tab" data-tab="charts" onclick="switchTab('charts',this)">Charts</div></div>
     <div class="tab-content active" id="tab-dcf">
       <div class="stat-grid" id="statGrid"></div>
       <div class="section"><h3>Projected Unlevered Free Cash Flows</h3><div style="overflow-x:auto"><table id="projTable"></table></div></div>
@@ -115,7 +115,7 @@ footer{text-align:center;padding:2rem 0;color:var(--text-muted);font-family:var(
       <div class="note-box"><strong>Disclaimer:</strong> Educational tool, not financial advice. DCF models are highly sensitive to assumptions.</div>
       <div style="text-align:center;margin-top:1.5rem"><button class="btn btn-pdf" onclick="downloadPDF()">Download PDF Report</button><button class="btn btn-excel" onclick="exportExcel()">Download Excel</button></div>
     </div>
-    <div class="tab-content" id="tab-memo"><div class="loader" id="memoLoader"><div class="spinner"></div><p>AI is writing the investment memo...</p></div><div id="memoContent"></div></div>
+    
     <div class="tab-content" id="tab-charts"><div class="chart-grid"><div class="chart-box"><h4>Stock Price (1Y)</h4><canvas id="chartPrice"></canvas></div><div class="chart-box"><h4>Revenue & EBIT</h4><canvas id="chartRevenue"></canvas></div><div class="chart-box"><h4>Net Income & FCF</h4><canvas id="chartFCF"></canvas></div><div class="chart-box"><h4>Profit Margins</h4><canvas id="chartMargins"></canvas></div><div class="chart-box chart-full"><h4>Projected UFCF & CapEx Fade</h4><canvas id="chartProjected"></canvas></div></div></div>
     
   </div>
@@ -125,7 +125,7 @@ footer{text-align:center;padding:2rem 0;color:var(--text-muted);font-family:var(
 const fmt=(n)=>{if(n==null||isNaN(n))return"—";if(Math.abs(n)>=1e12)return"$"+(n/1e12).toFixed(2)+"T";if(Math.abs(n)>=1e9)return"$"+(n/1e9).toFixed(2)+"B";if(Math.abs(n)>=1e6)return"$"+(n/1e6).toFixed(1)+"M";return"$"+n.toLocaleString()};
 const pct=(n)=>n!=null?n.toFixed(2)+"%":"—";const dollar=(n)=>n!=null?"$"+n.toFixed(2):"—";
 const fmtTime=(iso)=>{if(!iso)return"";const d=new Date(iso);return"Updated "+d.toLocaleString()};
-let lastData=null,autoAssumptions=null,companyData=null,chartsBuilt=false,memoLoaded=false,activeTab='dcf';
+let lastData=null,autoAssumptions=null,companyData=null,chartsBuilt=false,activeTab='dcf';
 const CI={};
 
 document.querySelectorAll('#step2 input').forEach(inp=>{inp.addEventListener('input',()=>inp.classList.add('user-modified'))});
@@ -135,7 +135,7 @@ function switchTab(tab,el){activeTab=tab;document.querySelectorAll('.tab').forEa
 
 async function lookupTicker(){
   const ticker=document.getElementById("ticker").value.trim();if(!ticker)return alert("Enter a ticker.");
-  document.getElementById("error").classList.remove("active");document.getElementById("step2").classList.add("hidden");document.getElementById("results").classList.remove("active");document.getElementById("lookupLoader").classList.add("active");document.getElementById("lookupBtn").disabled=true;chartsBuilt=false;memoLoaded=false;
+  document.getElementById("error").classList.remove("active");document.getElementById("step2").classList.add("hidden");document.getElementById("results").classList.remove("active");document.getElementById("lookupLoader").classList.add("active");document.getElementById("lookupBtn").disabled=true;chartsBuilt=false;
   try{
     const res=await fetch("/api/lookup",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ticker})});if(!res.ok){const err=await res.json();throw new Error(err.detail||"Lookup failed.")}
     const data=await res.json();companyData=data;autoAssumptions=data.auto_assumptions;
@@ -157,7 +157,7 @@ function resetAssumptions(){if(!autoAssumptions)return;document.getElementById("
 async function runDCF(){
   const ticker=document.getElementById("ticker").value.trim(),wacc=parseFloat(document.getElementById("wacc").value)/100,growth=parseFloat(document.getElementById("growth").value)/100,tgrowth=parseFloat(document.getElementById("tgrowth").value)/100,projyears=parseInt(document.getElementById("projyears").value)||10;
   if(!ticker)return alert("Enter a ticker.");if(isNaN(wacc)||isNaN(growth)||isNaN(tgrowth))return alert("Fill all assumptions.");if(wacc<=tgrowth)return alert("WACC must exceed terminal growth.");
-  document.getElementById("results").classList.remove("active");document.getElementById("error").classList.remove("active");document.getElementById("dcfLoader").classList.add("active");document.getElementById("runBtn").disabled=true;chartsBuilt=false;memoLoaded=false;
+  document.getElementById("results").classList.remove("active");document.getElementById("error").classList.remove("active");document.getElementById("dcfLoader").classList.add("active");document.getElementById("runBtn").disabled=true;chartsBuilt=false;
   try{const res=await fetch("/api/dcf",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ticker,wacc,terminal_growth:tgrowth,revenue_growth:growth,projection_years:projyears})});if(!res.ok){const err=await res.json();throw new Error(err.detail||"Error.")}const data=await res.json();lastData=data;renderResults(data)}
   catch(e){document.getElementById("error").textContent=e.message;document.getElementById("error").classList.add("active")}
   finally{document.getElementById("dcfLoader").classList.remove("active");document.getElementById("runBtn").disabled=false}}
@@ -173,7 +173,7 @@ function renderResults(data){
   // Restore active tab
   document.querySelectorAll('.tab').forEach(t=>{t.classList.toggle('active',t.dataset.tab===activeTab)});document.querySelectorAll('.tab-content').forEach(t=>{t.classList.toggle('active',t.id==='tab-'+activeTab)});
   document.getElementById("results").classList.add("active");document.getElementById("recBanner").scrollIntoView({behavior:"smooth",block:"start"});
-  if(activeTab==='charts')buildCharts();if(activeTab==='memo'&&!memoLoaded)loadMemo()}
+  if(activeTab==='charts')buildCharts();}
 
 // Charts
 function dc(id){if(CI[id]){CI[id].destroy();delete CI[id]}}
@@ -212,8 +212,8 @@ async function loadMemo(){
           <div style="margin-top:1rem"><div class="memo-col metrics"><h4>Metrics to Watch</h4><ul class="memo-list">${cats(m.key_metrics_to_watch)}</ul></div></div>
           <div class="timestamp" style="margin-top:1rem;text-align:left">${fmtTime(data.timestamp)}</div>
         </div>`}
-    else{document.getElementById("memoContent").innerHTML='<div class="news-empty">Could not generate memo. <button class="btn btn-secondary btn-small" onclick="memoLoaded=false;loadMemo()" style="margin-left:.5rem">Retry</button></div>'}}
-  catch(e){document.getElementById("memoContent").innerHTML='<div class="news-empty">Failed to generate memo. <button class="btn btn-secondary btn-small" onclick="memoLoaded=false;loadMemo()" style="margin-left:.5rem">Retry</button></div>'}
+    else{document.getElementById("memoContent").innerHTML='<div class="news-empty">Could not generate memo. <button class="btn btn-secondary btn-small" onclick="loadMemo()" style="margin-left:.5rem">Retry</button></div>'}}
+  catch(e){document.getElementById("memoContent").innerHTML='<div class="news-empty">Failed to generate memo. <button class="btn btn-secondary btn-small" onclick="loadMemo()" style="margin-left:.5rem">Retry</button></div>'}
   finally{document.getElementById("memoLoader").classList.remove("active");memoLoaded=true}}
 
 // PDF
