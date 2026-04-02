@@ -304,13 +304,11 @@ Rules: WACC 6-15%, Revenue growth realistic, Terminal growth 1.5-3.5%, Years 5-1
             print(f"Claude API error: {response.status_code} {response.text}")
             return None
         result = response.json()
-        # Extract text from all content blocks (web search may add tool_use blocks)
         text = ""
         for block in result.get("content", []):
             if block.get("type") == "text":
                 text += block.get("text", "")
         text = text.strip().replace("```json","").replace("```","").strip()
-        # Find the JSON object in the text
         start = text.find("{")
         end = text.rfind("}") + 1
         if start >= 0 and end > start:
@@ -327,7 +325,7 @@ Rules: WACC 6-15%, Revenue growth realistic, Terminal growth 1.5-3.5%, Years 5-1
             "projection_years_reasoning": parsed.get("projection_years_reasoning", ""),
             "overall_analysis": parsed.get("overall_analysis", ""),
         }
-    except Exception as e:
+    except Exception:
         print(f"Claude AI error: {traceback.format_exc()}")
         return None
 
@@ -358,27 +356,53 @@ Focus on: recent earnings, product launches, regulatory changes, competitive dyn
             response = await client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={"Content-Type":"application/json","x-api-key":CLAUDE_API_KEY,"anthropic-version":"2023-06-01"},
-                json={"model":"claude-sonnet-4-20250514","max_tokens":1000,
-                      "tools":[{"type":"web_search_20250305","name":"web_search"}],
-                      "messages":[{"role":"user","content":prompt}]},
+                json={
+                    "model": "claude-sonnet-4-20250514",
+                    "max_tokens": 1000,
+                    "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+                    "messages": [{"role": "user", "content": prompt}],
+                },
             )
+
         if response.status_code != 200:
             print(f"Claude News API error: {response.status_code} {response.text}")
             return None
+
         result = response.json()
-        # Extract text from response blocks
+
         text = ""
         for block in result.get("content", []):
             if block.get("type") == "text":
-                text += block["text"]
-        text = text.strip().replace("```json","").replace("```","").strip()
+                text += block.get("text", "")
+
+        text = text.strip().replace("```json", "").replace("```", "").strip()
         if not text:
             return None
+
+        start = text.find("[")
+        end = text.rfind("]") + 1
+        if start >= 0 and end > start:
+            text = text[start:end]
+
         parsed = json.loads(text)
+
         if isinstance(parsed, list):
-            return parsed[:8]
+            clean_items = []
+            for item in parsed[:8]:
+                if not isinstance(item, dict):
+                    continue
+                clean_items.append({
+                    "headline": item.get("headline", "Untitled update"),
+                    "summary": item.get("summary", "No summary available."),
+                    "sentiment": item.get("sentiment", "neutral"),
+                    "category": item.get("category", "market"),
+                })
+            return clean_items
+
         return None
-    except Exception as e:
+
+    except Exception:
+        print(f"Claude News raw parse failure: {text if 'text' in locals() else 'NO_TEXT'}")
         print(f"Claude News error: {traceback.format_exc()}")
         return None
 
@@ -424,10 +448,16 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
         discount_factor = 1 / ((1 + wacc) ** yr)
         pv = ufcf * discount_factor
         projections.append({
-            "year": yr, "revenue": round(proj_revenue), "ebit": round(proj_ebit),
-            "nopat": round(nopat), "da": round(proj_da), "capex": round(proj_capex),
-            "nwc_change": round(proj_nwc_change), "ufcf": round(ufcf),
-            "discount_factor": round(discount_factor, 4), "pv_ufcf": round(pv),
+            "year": yr,
+            "revenue": round(proj_revenue),
+            "ebit": round(proj_ebit),
+            "nopat": round(nopat),
+            "da": round(proj_da),
+            "capex": round(proj_capex),
+            "nwc_change": round(proj_nwc_change),
+            "ufcf": round(ufcf),
+            "discount_factor": round(discount_factor, 4),
+            "pv_ufcf": round(pv),
             "capex_pct": round(capex_pct_yr * 100, 1),
         })
         prev_revenue = proj_revenue
@@ -445,9 +475,12 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
     current_price = data["price"]
     upside = ((implied_share_price - current_price) / current_price * 100) if current_price else 0
 
-    if upside > 15: recommendation = "BUY"
-    elif upside < -15: recommendation = "SELL"
-    else: recommendation = "HOLD"
+    if upside > 15:
+        recommendation = "BUY"
+    elif upside < -15:
+        recommendation = "SELL"
+    else:
+        recommendation = "HOLD"
 
     wacc_range = [round(wacc + d, 4) for d in [-0.02, -0.01, 0, 0.01, 0.02]]
     tg_range = [round(terminal_growth + d, 4) for d in [-0.01, -0.005, 0, 0.005, 0.01]]
@@ -455,26 +488,35 @@ def run_dcf(data: dict, wacc: float, terminal_growth: float, revenue_growth: flo
     for w in wacc_range:
         row = {"wacc": w, "values": []}
         for tg in tg_range:
-            if w <= tg or w <= 0: row["values"].append(None)
+            if w <= tg or w <= 0:
+                row["values"].append(None)
             else:
                 tv = (final_ufcf * (1 + tg)) / (w - tg)
                 pv_tv = tv / ((1 + w) ** years)
                 spv = sum(p["ufcf"] / ((1 + w) ** p["year"]) for p in projections)
-                ev = spv + pv_tv; eq = ev + cash - debt
+                ev = spv + pv_tv
+                eq = ev + cash - debt
                 imp = eq / shares if shares else 0
                 row["values"].append(round(imp, 2))
         sensitivity.append(row)
 
     return {
-        "projections": projections, "terminal_value": round(terminal_value),
-        "pv_terminal": round(pv_terminal), "sum_pv_ufcf": round(sum_pv_ufcf),
-        "enterprise_value": round(enterprise_value), "equity_value": round(equity_value),
-        "implied_share_price": round(implied_share_price, 2), "current_price": current_price,
-        "upside_pct": round(upside, 2), "recommendation": recommendation,
-        "ebit_margin": round(ebit_margin * 100, 2), "tax_rate_used": round(tax_rate * 100, 2),
+        "projections": projections,
+        "terminal_value": round(terminal_value),
+        "pv_terminal": round(pv_terminal),
+        "sum_pv_ufcf": round(sum_pv_ufcf),
+        "enterprise_value": round(enterprise_value),
+        "equity_value": round(equity_value),
+        "implied_share_price": round(implied_share_price, 2),
+        "current_price": current_price,
+        "upside_pct": round(upside, 2),
+        "recommendation": recommendation,
+        "ebit_margin": round(ebit_margin * 100, 2),
+        "tax_rate_used": round(tax_rate * 100, 2),
         "capex_pct_start": round(capex_pct_start * 100, 2),
         "capex_pct_mature": round(mature_capex_pct * 100, 2),
-        "sensitivity": sensitivity, "sensitivity_tg_range": tg_range,
+        "sensitivity": sensitivity,
+        "sensitivity_tg_range": tg_range,
     }
 
 # ---------------------------------------------------------------------------
@@ -491,75 +533,154 @@ async def lookup_endpoint(req: TickerLookup):
         ai_result = await get_ai_assumptions(data)
 
         if ai_result:
-            assumptions = {"wacc":ai_result["wacc"],"revenue_growth":ai_result["revenue_growth"],"terminal_growth":ai_result["terminal_growth"],"projection_years":ai_result["projection_years"]}
-            ai_reasoning = {"wacc":ai_result["wacc_reasoning"],"revenue_growth":ai_result["revenue_growth_reasoning"],"terminal_growth":ai_result["terminal_growth_reasoning"],"projection_years":ai_result["projection_years_reasoning"],"overall":ai_result["overall_analysis"],"powered_by_ai":True}
+            assumptions = {
+                "wacc": ai_result["wacc"],
+                "revenue_growth": ai_result["revenue_growth"],
+                "terminal_growth": ai_result["terminal_growth"],
+                "projection_years": ai_result["projection_years"],
+            }
+            ai_reasoning = {
+                "wacc": ai_result["wacc_reasoning"],
+                "revenue_growth": ai_result["revenue_growth_reasoning"],
+                "terminal_growth": ai_result["terminal_growth_reasoning"],
+                "projection_years": ai_result["projection_years_reasoning"],
+                "overall": ai_result["overall_analysis"],
+                "powered_by_ai": True,
+            }
         else:
-            assumptions = {"wacc":round(data["calc_wacc"]*100,2),"revenue_growth":round(data["calc_revenue_growth"]*100,2),"terminal_growth":round(data["calc_terminal_growth"]*100,2),"projection_years":10}
-            ai_reasoning = {"wacc":"Calculated using CAPM weighted by capital structure.","revenue_growth":"Based on average historical revenue growth.","terminal_growth":"Standard 2.5% long-term GDP assumption.","projection_years":"Standard 10-year projection.","overall":"AI unavailable. Using formula-based assumptions.","powered_by_ai":False}
+            assumptions = {
+                "wacc": round(data["calc_wacc"] * 100, 2),
+                "revenue_growth": round(data["calc_revenue_growth"] * 100, 2),
+                "terminal_growth": round(data["calc_terminal_growth"] * 100, 2),
+                "projection_years": 10,
+            }
+            ai_reasoning = {
+                "wacc": "Calculated using CAPM weighted by capital structure.",
+                "revenue_growth": "Based on average historical revenue growth.",
+                "terminal_growth": "Standard 2.5% long-term GDP assumption.",
+                "projection_years": "Standard 10-year projection.",
+                "overall": "AI unavailable. Using formula-based assumptions.",
+                "powered_by_ai": False,
+            }
 
         return {
             "company": {
-                "name":data["name"],"ticker":data["ticker"],"sector":data["sector"],"industry":data["industry"],
-                "price":data["price"],"shares_outstanding":data["shares_outstanding"],
-                "market_cap":data["market_cap"],"cash":data["cash"],"debt":data["debt"],
-                "pe_ratio":data["pe_ratio"],"ev_ebitda":data["ev_ebitda"],"beta":data["beta"],
-                "dividend_yield":data["dividend_yield"],"profit_margin":data["profit_margin"],
-                "roe":data["roe"],"roa":data["roa"],
-                "fifty_two_high":data["fifty_two_high"],"fifty_two_low":data["fifty_two_low"],
-                "hist_revenue":data["hist_revenue"],"hist_ebit":data["hist_ebit"],
-                "hist_net_income":data["hist_net_income"],"hist_fcf":data["hist_fcf"],
-                "hist_years":data["hist_years"],"hist_margins":data["hist_margins"],
-                "price_history":data["price_history"],
+                "name": data["name"],
+                "ticker": data["ticker"],
+                "sector": data["sector"],
+                "industry": data["industry"],
+                "price": data["price"],
+                "shares_outstanding": data["shares_outstanding"],
+                "market_cap": data["market_cap"],
+                "cash": data["cash"],
+                "debt": data["debt"],
+                "pe_ratio": data["pe_ratio"],
+                "ev_ebitda": data["ev_ebitda"],
+                "beta": data["beta"],
+                "dividend_yield": data["dividend_yield"],
+                "profit_margin": data["profit_margin"],
+                "roe": data["roe"],
+                "roa": data["roa"],
+                "fifty_two_high": data["fifty_two_high"],
+                "fifty_two_low": data["fifty_two_low"],
+                "hist_revenue": data["hist_revenue"],
+                "hist_ebit": data["hist_ebit"],
+                "hist_net_income": data["hist_net_income"],
+                "hist_fcf": data["hist_fcf"],
+                "hist_years": data["hist_years"],
+                "hist_margins": data["hist_margins"],
+                "price_history": data["price_history"],
             },
-            "auto_assumptions":assumptions,
-            "ai_reasoning":ai_reasoning,
-            "wacc_breakdown":{
-                "risk_free_rate":round(data["risk_free_rate"]*100,2),"equity_risk_premium":round(data["equity_risk_premium"]*100,2),
-                "beta":data["beta"],"cost_of_equity":round(data["cost_of_equity"]*100,2),
-                "cost_of_debt":round(data["cost_of_debt"]*100,2),"weight_equity":round(data["weight_equity"]*100,2),
-                "weight_debt":round(data["weight_debt"]*100,2),"tax_rate":round(data["tax_rate"]*100,2),
+            "auto_assumptions": assumptions,
+            "ai_reasoning": ai_reasoning,
+            "wacc_breakdown": {
+                "risk_free_rate": round(data["risk_free_rate"] * 100, 2),
+                "equity_risk_premium": round(data["equity_risk_premium"] * 100, 2),
+                "beta": data["beta"],
+                "cost_of_equity": round(data["cost_of_equity"] * 100, 2),
+                "cost_of_debt": round(data["cost_of_debt"] * 100, 2),
+                "weight_equity": round(data["weight_equity"] * 100, 2),
+                "weight_debt": round(data["weight_debt"] * 100, 2),
+                "tax_rate": round(data["tax_rate"] * 100, 2),
             },
-            "model_inputs":{
-                "ebit_margin":round(data["ebit_margin"],2),"da_pct":round(data["da_pct"]*100,2),
-                "capex_pct_current":round(data["capex_pct"]*100,2),"capex_pct_mature":round(data["mature_capex_pct"]*100,2),
-                "nwc_pct":round(data["nwc_pct_of_rev_change"]*100,2),
+            "model_inputs": {
+                "ebit_margin": round(data["ebit_margin"], 2),
+                "da_pct": round(data["da_pct"] * 100, 2),
+                "capex_pct_current": round(data["capex_pct"] * 100, 2),
+                "capex_pct_mature": round(data["mature_capex_pct"] * 100, 2),
+                "nwc_pct": round(data["nwc_pct_of_rev_change"] * 100, 2),
             },
         }
-    except HTTPException: raise
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"ERROR lookup {req.ticker}: {traceback.format_exc()}")
-        return JSONResponse(status_code=500, content={"detail":f"Server error: {str(e)}"})
+        return JSONResponse(status_code=500, content={"detail": f"Server error: {str(e)}"})
 
 @app.post("/api/dcf")
 def dcf_endpoint(req: DCFRequest):
     try:
         ticker = req.ticker.strip().upper()
-        if not ticker: raise HTTPException(status_code=400, detail="Ticker is required.")
+        if not ticker:
+            raise HTTPException(status_code=400, detail="Ticker is required.")
         data = fetch_financials(ticker)
         result = run_dcf(data, req.wacc, req.terminal_growth, req.revenue_growth, req.projection_years)
         return {
-            "company":{"name":data["name"],"ticker":data["ticker"],"sector":data["sector"],"price":data["price"],"shares_outstanding":data["shares_outstanding"],"market_cap":data["market_cap"],"cash":data["cash"],"debt":data["debt"],"pe_ratio":data["pe_ratio"],"ev_ebitda":data["ev_ebitda"],"beta":data["beta"],"hist_revenue":data["hist_revenue"]},
-            "assumptions":{"wacc":req.wacc,"terminal_growth":req.terminal_growth,"revenue_growth":req.revenue_growth,"projection_years":req.projection_years},
-            "valuation":result,
+            "company": {
+                "name": data["name"],
+                "ticker": data["ticker"],
+                "sector": data["sector"],
+                "price": data["price"],
+                "shares_outstanding": data["shares_outstanding"],
+                "market_cap": data["market_cap"],
+                "cash": data["cash"],
+                "debt": data["debt"],
+                "pe_ratio": data["pe_ratio"],
+                "ev_ebitda": data["ev_ebitda"],
+                "beta": data["beta"],
+                "hist_revenue": data["hist_revenue"],
+            },
+            "assumptions": {
+                "wacc": req.wacc,
+                "terminal_growth": req.terminal_growth,
+                "revenue_growth": req.revenue_growth,
+                "projection_years": req.projection_years,
+            },
+            "valuation": result,
         }
-    except HTTPException: raise
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"ERROR {req.ticker}: {traceback.format_exc()}")
-        return JSONResponse(status_code=500, content={"detail":f"Server error: {str(e)}"})
+        return JSONResponse(status_code=500, content={"detail": f"Server error: {str(e)}"})
 
 @app.post("/api/news")
 async def news_endpoint(req: NewsRequest):
     try:
         ticker = req.ticker.strip().upper()
-        if not ticker: raise HTTPException(status_code=400, detail="Ticker is required.")
+        if not ticker:
+            raise HTTPException(status_code=400, detail="Ticker is required.")
+
+        if not CLAUDE_API_KEY:
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "News feature is not configured. Add CLAUDE_API_KEY in Railway environment variables."},
+            )
+
         stock = yf.Ticker(ticker, session=None)
         name = stock.info.get("shortName", ticker) if stock.info else ticker
+
         news = await get_ai_news(ticker, name)
-        if news:
-            return {"ticker": ticker, "company": name, "news": news}
-        else:
-            return {"ticker": ticker, "company": name, "news": []}
-    except HTTPException: raise
+        if news is None:
+            return JSONResponse(
+                status_code=502,
+                content={"detail": "News lookup failed. Check Railway logs for the Claude response/parsing error."},
+            )
+
+        return {"ticker": ticker, "company": name, "news": news}
+
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"ERROR news {req.ticker}: {traceback.format_exc()}")
         return JSONResponse(status_code=500, content={"detail": f"Server error: {str(e)}"})
