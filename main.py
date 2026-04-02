@@ -267,7 +267,7 @@ async def get_ai_assumptions(data: dict) -> dict | None:
             gr = (hr[i] - hr[i-1]) / hr[i-1] * 100
             growth_rates_str += f"  Year {i} to {i+1}: {gr:.1f}%\n"
 
-    prompt = f"""You are a senior equity research analyst. Based on the financial data below, recommend DCF model assumptions for {data['name']} ({data['ticker']}).
+    prompt = f"""You are a senior equity research analyst. First, search the web for the latest news, earnings, analyst estimates, and recent developments for this company. Then, using BOTH the financial data below AND the current news you found, recommend DCF model assumptions for {data['name']} ({data['ticker']}).
 
 COMPANY DATA:
 - Sector: {data['sector']}, Industry: {data['industry']}
@@ -289,6 +289,8 @@ NOTE: Model uses CapEx fade from {data['capex_pct']*100:.1f}% to {data['mature_c
 RESPOND WITH ONLY THIS JSON (no markdown/backticks):
 {{"wacc":<num>,"wacc_reasoning":"<1-2 sentences>","revenue_growth":<num>,"revenue_growth_reasoning":"<1-2 sentences>","terminal_growth":<num>,"terminal_growth_reasoning":"<1-2 sentences>","projection_years":<int>,"projection_years_reasoning":"<1 sentence>","overall_analysis":"<2-3 sentences>"}}
 
+IMPORTANT: Factor in recent news, earnings, forward guidance, analyst consensus, and major developments into your assumptions. Reference specific recent events in your reasoning.
+
 Rules: WACC 6-15%, Revenue growth realistic, Terminal growth 1.5-3.5%, Years 5-15. Be specific to THIS company."""
 
     try:
@@ -296,13 +298,23 @@ Rules: WACC 6-15%, Revenue growth realistic, Terminal growth 1.5-3.5%, Years 5-1
             response = await client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={"Content-Type":"application/json","x-api-key":CLAUDE_API_KEY,"anthropic-version":"2023-06-01"},
-                json={"model":"claude-sonnet-4-20250514","max_tokens":500,"messages":[{"role":"user","content":prompt}]},
+                json={"model":"claude-sonnet-4-20250514","max_tokens":1000,"tools":[{"type":"web_search_20250305","name":"web_search"}],"messages":[{"role":"user","content":prompt}]},
             )
         if response.status_code != 200:
             print(f"Claude API error: {response.status_code} {response.text}")
             return None
         result = response.json()
-        text = result["content"][0]["text"].strip().replace("```json","").replace("```","").strip()
+        # Extract text from all content blocks (web search may add tool_use blocks)
+        text = ""
+        for block in result.get("content", []):
+            if block.get("type") == "text":
+                text += block.get("text", "")
+        text = text.strip().replace("```json","").replace("```","").strip()
+        # Find the JSON object in the text
+        start = text.find("{")
+        end = text.rfind("}") + 1
+        if start >= 0 and end > start:
+            text = text[start:end]
         parsed = json.loads(text)
         return {
             "wacc": round(max(5.0, min(float(parsed["wacc"]), 20.0)), 2),
