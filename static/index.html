@@ -22,22 +22,16 @@ html{font-size:14px}
 body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overflow-x:hidden}
 a{color:var(--accent);text-decoration:none}
 .container{max-width:1200px;margin:0 auto;padding:1rem}
-
-/* Header */
 header{border-bottom:1px solid var(--border);padding:1.2rem 0;margin-bottom:2rem}
 header .container{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem}
 .logo{font-family:var(--mono);font-size:1.3rem;font-weight:700;letter-spacing:-.02em}
 .logo span{color:var(--accent)}
 .tagline{color:var(--text-dim);font-size:.8rem;font-family:var(--mono)}
-
-/* Panels */
 .panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.8rem;margin-bottom:1.5rem}
 .panel h2{font-family:var(--mono);font-size:1rem;color:var(--accent);margin-bottom:1.2rem;letter-spacing:.04em;text-transform:uppercase;font-weight:600}
-
-/* Input rows */
 .input-row{display:grid;grid-template-columns:1fr auto;gap:1rem;align-items:end}
-.input-row-4{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:1rem;align-items:end}
-@media(max-width:768px){.input-row-4{grid-template-columns:1fr 1fr;}}
+.input-row-5{display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:1rem;align-items:end}
+@media(max-width:768px){.input-row-5{grid-template-columns:1fr 1fr;}}
 .field label{display:block;color:var(--text-dim);font-size:.75rem;font-family:var(--mono);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem}
 .field input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.65rem .8rem;color:var(--text);font-family:var(--mono);font-size:.95rem;transition:border-color .2s}
 .field input:focus{outline:none;border-color:var(--accent)}
@@ -46,36 +40,22 @@ header .container{display:flex;align-items:center;justify-content:space-between;
 .btn:hover{filter:brightness(1.15);transform:translateY(-1px)}
 .btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
 .btn-secondary{background:var(--surface3);color:var(--text)}
-
-/* WACC Breakdown */
 .wacc-breakdown{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.8rem;margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border)}
 .wb-item{font-family:var(--mono);font-size:.75rem}
 .wb-item .wb-label{color:var(--text-muted);font-size:.65rem;text-transform:uppercase;letter-spacing:.06em}
 .wb-item .wb-val{color:var(--text-dim);margin-top:.15rem}
-
-/* Auto-calc badge */
 .auto-badge{display:inline-block;font-family:var(--mono);font-size:.6rem;background:var(--accent-dim);color:var(--accent);padding:.15rem .4rem;border-radius:4px;text-transform:uppercase;letter-spacing:.06em;margin-left:.4rem;vertical-align:middle}
 .override-hint{font-family:var(--mono);font-size:.7rem;color:var(--text-muted);margin-top:.8rem}
-
-/* Loading */
 .loader{display:none;text-align:center;padding:3rem 0}
 .loader.active{display:block}
 .spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 1rem}
 @keyframes spin{to{transform:rotate(360deg)}}
 .loader p{color:var(--text-dim);font-family:var(--mono);font-size:.85rem}
-
-/* Error */
 .error{background:var(--red-bg);border:1px solid var(--red);border-radius:10px;padding:1rem 1.2rem;color:var(--red);font-family:var(--mono);font-size:.85rem;margin-bottom:1.5rem;display:none}
 .error.active{display:block}
-
-/* Hidden sections */
 .hidden{display:none}
-
-/* Results */
 #results{display:none}
 #results.active{display:block}
-
-/* Recommendation banner */
 .rec-banner{border-radius:12px;padding:2rem;text-align:center;margin-bottom:2rem;border:1px solid}
 .rec-banner.BUY{background:var(--green-bg);border-color:var(--green)}
 .rec-banner.SELL{background:var(--red-bg);border-color:var(--red)}
@@ -89,41 +69,31 @@ header .container{display:flex;align-items:center;justify-content:space-between;
 .rec-price-item{text-align:center}
 .rec-price-item .label{font-family:var(--mono);font-size:.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em}
 .rec-price-item .val{font-family:var(--mono);font-size:1.5rem;font-weight:700;margin-top:.2rem}
-
-/* Stat cards */
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:2rem}
 .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.2rem}
 .stat-card .label{font-family:var(--mono);font-size:.65rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em}
 .stat-card .value{font-family:var(--mono);font-size:1.15rem;font-weight:600;margin-top:.3rem;color:var(--text)}
-
-/* Section */
 .section{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.5rem;margin-bottom:1.5rem}
 .section h3{font-family:var(--mono);font-size:.85rem;color:var(--accent);text-transform:uppercase;letter-spacing:.06em;margin-bottom:1rem;font-weight:600}
-
-/* Tables */
 table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:.8rem}
 th{text-align:right;color:var(--text-muted);font-weight:500;padding:.5rem .6rem;border-bottom:1px solid var(--border);font-size:.7rem;text-transform:uppercase;letter-spacing:.06em}
 td{text-align:right;padding:.5rem .6rem;border-bottom:1px solid rgba(42,58,80,.4);color:var(--text)}
 th:first-child,td:first-child{text-align:left}
 tr:hover td{background:rgba(34,211,238,.03)}
-
-/* Sensitivity */
 .sens-table td,.sens-table th{font-size:.75rem;padding:.4rem .5rem;text-align:center}
 .sens-table .highlight{background:rgba(34,211,238,.15);font-weight:700;color:var(--accent)}
 .sens-header{color:var(--text-dim);font-family:var(--mono);font-size:.7rem;text-align:center;margin-bottom:.5rem}
-
-/* Footer */
 footer{text-align:center;padding:2rem 0;color:var(--text-muted);font-family:var(--mono);font-size:.7rem;border-top:1px solid var(--border);margin-top:2rem}
-
 @media(max-width:600px){
   .input-row{grid-template-columns:1fr}
-  .input-row-4{grid-template-columns:1fr}
+  .input-row-5{grid-template-columns:1fr}
   .rec-prices{gap:1.5rem}
   .stat-grid{grid-template-columns:1fr 1fr}
   table{font-size:.7rem}
 }
-
 .btn-excel{background:var(--green);margin-top:1rem}
+.note-box{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1rem 1.2rem;margin-top:1.5rem;font-family:var(--mono);font-size:.75rem;color:var(--text-dim);line-height:1.6}
+.note-box strong{color:var(--accent)}
 </style>
 </head>
 <body>
@@ -139,7 +109,7 @@ footer{text-align:center;padding:2rem 0;color:var(--text-muted);font-family:var(
 
 <main class="container">
 
-  <!-- STEP 1: Ticker Input -->
+  <!-- STEP 1 -->
   <div class="panel" id="step1">
     <h2>Step 1 — Select Company</h2>
     <div class="input-row">
@@ -153,20 +123,18 @@ footer{text-align:center;padding:2rem 0;color:var(--text-muted);font-family:var(
     </div>
   </div>
 
-  <!-- Loading for lookup -->
   <div class="loader" id="lookupLoader">
     <div class="spinner"></div>
     <p>Fetching company data & calculating assumptions...</p>
   </div>
 
-  <!-- Error -->
   <div class="error" id="error"></div>
 
-  <!-- STEP 2: Assumptions (hidden until lookup) -->
+  <!-- STEP 2 -->
   <div class="panel hidden" id="step2">
     <h2>Step 2 — Model Assumptions <span class="auto-badge">Auto-Calculated</span></h2>
     <p class="override-hint">Values below are auto-calculated from company data. Edit any field to override.</p>
-    <div class="input-row-4" style="margin-top:1rem">
+    <div class="input-row-5" style="margin-top:1rem">
       <div class="field">
         <label>WACC (%)</label>
         <input type="number" id="wacc" step="0.1" min="1" max="30">
@@ -179,17 +147,19 @@ footer{text-align:center;padding:2rem 0;color:var(--text-muted);font-family:var(
         <label>Terminal Growth (%)</label>
         <input type="number" id="tgrowth" step="0.25" min="0" max="5">
       </div>
+      <div class="field">
+        <label>Projection Years</label>
+        <input type="number" id="projyears" step="1" min="3" max="15" value="10">
+      </div>
       <div style="display:flex;gap:.5rem;align-items:end">
         <button class="btn" id="runBtn" onclick="runDCF()">Run DCF</button>
         <button class="btn btn-secondary" onclick="resetAssumptions()" title="Reset to auto-calculated">Reset</button>
       </div>
     </div>
-
-    <!-- WACC Breakdown -->
     <div class="wacc-breakdown" id="waccBreakdown"></div>
+    <div class="wacc-breakdown" id="modelInputs" style="border-top:1px solid var(--border);margin-top:.8rem;padding-top:.8rem"></div>
   </div>
 
-  <!-- Loading for DCF -->
   <div class="loader" id="dcfLoader">
     <div class="spinner"></div>
     <p>Running DCF model...</p>
@@ -234,7 +204,13 @@ footer{text-align:center;padding:2rem 0;color:var(--text-muted);font-family:var(
       <div style="overflow-x:auto"><table class="sens-table" id="sensTable"></table></div>
     </div>
 
-    <div style="text-align:center">
+    <div class="note-box">
+      <strong>Disclaimer:</strong> This is an educational tool, not financial advice. DCF models are highly sensitive to assumptions — 
+      small changes in WACC or growth rates can significantly alter the implied value. Terminal value often drives a large portion 
+      of total valuation. Always cross-reference with comparable company analysis and market context.
+    </div>
+
+    <div style="text-align:center;margin-top:1.5rem">
       <button class="btn btn-excel" onclick="exportExcel()">Download Excel Model</button>
     </div>
   </div>
@@ -263,14 +239,11 @@ const dollar = (n) => n != null ? "$" + n.toFixed(2) : "—";
 let lastData = null;
 let autoAssumptions = null;
 
-// Highlight fields the user has manually edited
 document.querySelectorAll('#step2 input').forEach(inp => {
   inp.addEventListener('input', () => inp.classList.add('user-modified'));
 });
 
-// ──────────────────────────────────────────────
-// Step 1: Lookup ticker → auto-fill assumptions
-// ──────────────────────────────────────────────
+// ── Step 1: Lookup ──
 async function lookupTicker() {
   const ticker = document.getElementById("ticker").value.trim();
   if (!ticker) return alert("Enter a ticker.");
@@ -287,24 +260,18 @@ async function lookupTicker() {
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({ ticker })
     });
-
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || "Lookup failed.");
-    }
+    if (!res.ok) { const err = await res.json(); throw new Error(err.detail || "Lookup failed."); }
 
     const data = await res.json();
     autoAssumptions = data.auto_assumptions;
 
-    // Fill assumption fields
     document.getElementById("wacc").value = data.auto_assumptions.wacc;
     document.getElementById("growth").value = data.auto_assumptions.revenue_growth;
     document.getElementById("tgrowth").value = data.auto_assumptions.terminal_growth;
+    document.getElementById("projyears").value = 10;
 
-    // Clear user-modified highlights
     document.querySelectorAll('#step2 input').forEach(inp => inp.classList.remove('user-modified'));
 
-    // Show WACC breakdown
     const wb = data.wacc_breakdown;
     document.getElementById("waccBreakdown").innerHTML = `
       <div class="wb-item"><div class="wb-label">Risk-Free Rate</div><div class="wb-val">${wb.risk_free_rate}%</div></div>
@@ -317,7 +284,14 @@ async function lookupTicker() {
       <div class="wb-item"><div class="wb-label">Eff. Tax Rate</div><div class="wb-val">${wb.tax_rate}%</div></div>
     `;
 
-    // Show step 2
+    const mi = data.model_inputs;
+    document.getElementById("modelInputs").innerHTML = `
+      <div class="wb-item"><div class="wb-label">EBIT Margin</div><div class="wb-val">${mi.ebit_margin}%</div></div>
+      <div class="wb-item"><div class="wb-label">D&A (% Rev)</div><div class="wb-val">${mi.da_pct}%</div></div>
+      <div class="wb-item"><div class="wb-label">CapEx (% Rev)</div><div class="wb-val">${mi.capex_pct}%</div></div>
+      <div class="wb-item"><div class="wb-label">NWC (% ΔRev)</div><div class="wb-val">${mi.nwc_pct}%</div></div>
+    `;
+
     document.getElementById("step2").classList.remove("hidden");
     document.getElementById("step2").scrollIntoView({behavior:"smooth", block:"start"});
 
@@ -335,17 +309,17 @@ function resetAssumptions() {
   document.getElementById("wacc").value = autoAssumptions.wacc;
   document.getElementById("growth").value = autoAssumptions.revenue_growth;
   document.getElementById("tgrowth").value = autoAssumptions.terminal_growth;
+  document.getElementById("projyears").value = 10;
   document.querySelectorAll('#step2 input').forEach(inp => inp.classList.remove('user-modified'));
 }
 
-// ──────────────────────────────────────────────
-// Step 2: Run DCF
-// ──────────────────────────────────────────────
+// ── Step 2: Run DCF ──
 async function runDCF() {
   const ticker = document.getElementById("ticker").value.trim();
   const wacc = parseFloat(document.getElementById("wacc").value) / 100;
   const growth = parseFloat(document.getElementById("growth").value) / 100;
   const tgrowth = parseFloat(document.getElementById("tgrowth").value) / 100;
+  const projyears = parseInt(document.getElementById("projyears").value) || 10;
 
   if (!ticker) return alert("Enter a ticker.");
   if (isNaN(wacc) || isNaN(growth) || isNaN(tgrowth)) return alert("Fill all assumptions.");
@@ -362,14 +336,10 @@ async function runDCF() {
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
         ticker, wacc, terminal_growth: tgrowth,
-        revenue_growth: growth, projection_years: 5
+        revenue_growth: growth, projection_years: projyears
       })
     });
-
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || "Something went wrong.");
-    }
+    if (!res.ok) { const err = await res.json(); throw new Error(err.detail || "Something went wrong."); }
 
     const data = await res.json();
     lastData = data;
@@ -383,9 +353,7 @@ async function runDCF() {
   }
 }
 
-// ──────────────────────────────────────────────
-// Render results
-// ──────────────────────────────────────────────
+// ── Render ──
 function renderResults(data) {
   const c = data.company;
   const v = data.valuation;
@@ -441,9 +409,7 @@ function renderResults(data) {
     ["Current Market Price", dollar(v.current_price)],
     ["Upside / Downside", (up >= 0 ? "+" : "") + up.toFixed(1) + "%"],
   ];
-  valRows.forEach(([lbl, val]) => {
-    valHTML += `<tr><td>${lbl}</td><td>${val}</td></tr>`;
-  });
+  valRows.forEach(([lbl, val]) => { valHTML += `<tr><td>${lbl}</td><td>${val}</td></tr>`; });
   valHTML += "</tbody>";
   document.getElementById("valTable").innerHTML = valHTML;
 
@@ -471,9 +437,7 @@ function renderResults(data) {
   document.getElementById("recBanner").scrollIntoView({behavior:"smooth", block:"start"});
 }
 
-// ──────────────────────────────────────────────
-// Excel Export
-// ──────────────────────────────────────────────
+// ── Excel ──
 function exportExcel() {
   if (!lastData) return;
   const c = lastData.company;
@@ -512,7 +476,6 @@ function exportExcel() {
   XLSX.writeFile(wb, `DCF_${c.ticker}.xlsx`);
 }
 
-// Enter key handlers
 document.getElementById("ticker").addEventListener("keydown", e => { if (e.key === "Enter") lookupTicker(); });
 document.querySelectorAll('#step2 input').forEach(input => {
   input.addEventListener("keydown", e => { if (e.key === "Enter") runDCF(); });
